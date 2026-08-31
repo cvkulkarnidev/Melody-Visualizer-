@@ -8,6 +8,7 @@ compose = "1.11.4"
 material3 = "1.4.0"
 materialIcons = "1.7.8"
 coroutines = "1.11.0"
+litert = "1.4.2"
 junit = "4.13.2"
 
 [libraries]
@@ -23,6 +24,7 @@ androidx-compose-ui-tooling-preview = { module = "androidx.compose.ui:ui-tooling
 androidx-compose-material-icons = { module = "androidx.compose.material:material-icons-extended", version.ref = "materialIcons" }
 androidx-compose-material3 = { module = "androidx.compose.material3:material3", version.ref = "material3" }
 kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "coroutines" }
+litert = { module = "com.google.ai.edge.litert:litert", version.ref = "litert" }
 junit = { module = "junit:junit", version.ref = "junit" }
 
 [plugins]

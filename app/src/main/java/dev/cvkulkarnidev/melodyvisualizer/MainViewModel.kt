@@ -7,9 +7,10 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import dev.cvkulkarnidev.melodyvisualizer.audio.AudioFileDecoder
 import dev.cvkulkarnidev.melodyvisualizer.audio.HummingRecorder
+import dev.cvkulkarnidev.melodyvisualizer.audio.InstrumentSound
 import dev.cvkulkarnidev.melodyvisualizer.audio.PianoSynth
 import dev.cvkulkarnidev.melodyvisualizer.music.DetectedNoteEvent
-import dev.cvkulkarnidev.melodyvisualizer.music.MelodyTranscriber
+import dev.cvkulkarnidev.melodyvisualizer.music.HybridMelodyTranscriber
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -40,6 +41,7 @@ data class MelodyUiState(
     val notes: List<DetectedNoteEvent> = emptyList(),
     val selectedNoteIndex: Int? = null,
     val isPlaying: Boolean = false,
+    val instrument: InstrumentSound = InstrumentSound.Piano,
     val errorMessage: String? = null,
 )
 
@@ -47,6 +49,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val appContext = application.applicationContext
     private val recorder = HummingRecorder(appContext)
     private val decoder = AudioFileDecoder(appContext)
+    private val transcriber = HybridMelodyTranscriber(appContext)
     private val pianoSynth = PianoSynth()
 
     private val _uiState = MutableStateFlow(MelodyUiState())
@@ -133,8 +136,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun selectNote(index: Int) {
         val note = _uiState.value.notes.getOrNull(index) ?: return
-        pianoSynth.play(note.note)
+        pianoSynth.play(
+            note = note.note,
+            instrument = _uiState.value.instrument,
+            durationMillis = note.durationMillis,
+        )
         _uiState.update { it.copy(selectedNoteIndex = index) }
+    }
+
+    fun selectInstrument(instrument: InstrumentSound) {
+        pianoSynth.stop()
+        _uiState.update { it.copy(instrument = instrument, isPlaying = false) }
     }
 
     fun playMelody() {
@@ -143,6 +155,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.update { it.copy(isPlaying = true, selectedNoteIndex = 0) }
         pianoSynth.playSequence(
             notes = notes,
+            instrument = _uiState.value.instrument,
             onNote = { index ->
                 _uiState.update { it.copy(isPlaying = true, selectedNoteIndex = index) }
             },
@@ -199,7 +212,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     )
                 }
                 val notes = withContext(Dispatchers.Default) {
-                    MelodyTranscriber(sampleRate = decoded.sampleRate).transcribe(decoded.samples) { progress ->
+                    transcriber.transcribe(decoded.samples, decoded.sampleRate) { progress ->
                         _uiState.update {
                             it.copy(
                                 stage = AnalysisStage.Transcribing,
@@ -252,6 +265,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     override fun onCleared() {
         recorder.release()
+        transcriber.close()
         pianoSynth.release()
         super.onCleared()
     }

@@ -2,7 +2,7 @@
 
 An offline Android app that turns a completed humming, singing, or whistling recording into timed piano notes.
 
-## Version 0.2
+## Version 0.3
 
 The app now has the two input choices intended for humming transcription:
 
@@ -16,11 +16,13 @@ There is no live pitch visualization while recording. Both paths wait for a comp
 - in-app AAC/M4A microphone recording with timer and level feedback;
 - Android audio-file picker for common formats supported by `MediaExtractor`/`MediaCodec`;
 - stereo-to-mono conversion and resampling to 44.1 kHz;
-- full-file pitch detection using YIN;
-- confidence rejection, median smoothing and note-change hysteresis;
+- neural note/onset transcription using Spotify Basic Pitch's bundled TFLite model;
+- a second YIN acoustic tracker that cross-checks uncertain notes and octave errors;
+- confidence rejection, median smoothing, note-change hysteresis and event reconciliation;
 - segmentation into timed note events with short-note filtering and gap merging;
 - timeline piano roll, highlighted piano keyboard and tappable note sequence;
-- playback of the complete detected melody using locally synthesized piano tones;
+- selectable piano and harmonium playback that follows every detected note length;
+- a longer piano decay/release and a steadily sustained harmonium envelope;
 - progress, empty-result and unsupported-audio states;
 - no account, server, internet permission, analytics or audio upload.
 
@@ -31,11 +33,12 @@ The current transcription path is intended for one clear voice, hum, or whistle 
 1. The user finishes an in-app recording or selects an audio file.
 2. `MediaExtractor` and `MediaCodec` decode the audio to PCM in memory.
 3. Channels are mixed to mono and resampled to 44.1 kHz when necessary.
-4. YIN analyzes overlapping 2,048-sample frames.
-5. Low-confidence and silent frames are rejected.
-6. A rolling median and semitone hysteresis stabilize the pitch track.
-7. Stable frames are grouped into timed, equal-tempered MIDI note events using A4 = 440 Hz.
-8. Compose draws the timeline and keyboard; `AudioTrack` plays the detected melody locally.
+4. The bundled Basic Pitch TFLite network analyzes 2-second overlapping windows at 22.05 kHz.
+5. Its note energy and onset evidence are decoded into monophonic timed note candidates.
+6. YIN independently analyzes overlapping 2,048-sample frames, rejecting silence and low-confidence pitch.
+7. The tracks are reconciled: agreement raises confidence, strong acoustic evidence can repair an octave error, and reliable missed notes can be recovered.
+8. Stable events are mapped to equal-tempered MIDI notes using A4 = 440 Hz.
+9. Compose draws the timeline and keyboard; `AudioTrack` synthesizes piano or harmonium playback locally.
 
 Record one note at a time in a quiet room for the clearest result. Recordings are limited to two minutes in this test release.
 
@@ -54,3 +57,7 @@ GitHub Actions runs unit tests and publishes an installable debug APK for every 
 ## Privacy
 
 Microphone access is used only for the **Record humming** option. Audio-file upload means selecting a local file for local processing; the app does not transmit it. Temporary in-app recordings are stored in the application cache.
+
+## Third-party model
+
+The bundled Basic Pitch model is provided by Spotify under the Apache License 2.0. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

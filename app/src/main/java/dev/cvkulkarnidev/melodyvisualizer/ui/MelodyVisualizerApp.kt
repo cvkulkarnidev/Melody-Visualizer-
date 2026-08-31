@@ -81,6 +81,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.cvkulkarnidev.melodyvisualizer.AnalysisStage
 import dev.cvkulkarnidev.melodyvisualizer.MainViewModel
 import dev.cvkulkarnidev.melodyvisualizer.MelodyUiState
+import dev.cvkulkarnidev.melodyvisualizer.audio.InstrumentSound
 import dev.cvkulkarnidev.melodyvisualizer.music.DetectedNoteEvent
 import dev.cvkulkarnidev.melodyvisualizer.music.MusicNote
 import dev.cvkulkarnidev.melodyvisualizer.ui.theme.Aqua
@@ -184,6 +185,7 @@ fun MelodyVisualizerApp(viewModel: MainViewModel) {
                 onPlay = viewModel::playMelody,
                 onStop = viewModel::stopPlayback,
                 onSelectNote = viewModel::selectNote,
+                onInstrumentChange = viewModel::selectInstrument,
                 onRecordAgain = {
                     viewModel.reset()
                     destinationName = Destination.Record.name
@@ -523,6 +525,7 @@ private fun ResultScreen(
     onPlay: () -> Unit,
     onStop: () -> Unit,
     onSelectNote: (Int) -> Unit,
+    onInstrumentChange: (InstrumentSound) -> Unit,
     onRecordAgain: () -> Unit,
     onUploadAnother: () -> Unit,
     onClearError: () -> Unit,
@@ -549,6 +552,7 @@ private fun ResultScreen(
                 onPlay = onPlay,
                 onStop = onStop,
                 onSelectNote = onSelectNote,
+                onInstrumentChange = onInstrumentChange,
                 onRecordAgain = onRecordAgain,
                 onUploadAnother = onUploadAnother,
             )
@@ -616,6 +620,7 @@ private fun CompletedResult(
     onPlay: () -> Unit,
     onStop: () -> Unit,
     onSelectNote: (Int) -> Unit,
+    onInstrumentChange: (InstrumentSound) -> Unit,
     onRecordAgain: () -> Unit,
     onUploadAnother: () -> Unit,
 ) {
@@ -654,6 +659,12 @@ private fun CompletedResult(
     NoteSequence(state.notes, selectedIndex, onSelectNote)
     Spacer(Modifier.height(16.dp))
 
+    InstrumentSelector(
+        selected = state.instrument,
+        onSelect = onInstrumentChange,
+    )
+    Spacer(Modifier.height(12.dp))
+
     Button(
         onClick = if (state.isPlaying) onStop else onPlay,
         modifier = Modifier.fillMaxWidth().height(54.dp),
@@ -662,10 +673,67 @@ private fun CompletedResult(
     ) {
         Icon(if (state.isPlaying) Icons.Rounded.Stop else Icons.Rounded.PlayArrow, contentDescription = null)
         Spacer(Modifier.width(8.dp))
-        Text(if (state.isPlaying) "Stop piano playback" else "Play detected melody", fontWeight = FontWeight.Bold)
+        Text(
+            if (state.isPlaying) "Stop playback" else "Play with ${state.instrument.label}",
+            fontWeight = FontWeight.Bold,
+        )
     }
     Spacer(Modifier.height(12.dp))
     RetryButtons(onRecordAgain, onUploadAnother)
+}
+
+@Composable
+private fun InstrumentSelector(
+    selected: InstrumentSound,
+    onSelect: (InstrumentSound) -> Unit,
+) {
+    Column {
+        Text(
+            "PLAYBACK SOUND",
+            color = TextSecondary,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 1.2.sp,
+        )
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            InstrumentSound.entries.forEach { instrument ->
+                val isSelected = selected == instrument
+                OutlinedButton(
+                    onClick = { onSelect(instrument) },
+                    modifier = Modifier.weight(1f).height(48.dp),
+                    shape = RoundedCornerShape(15.dp),
+                    border = BorderStroke(
+                        1.dp,
+                        if (isSelected) VioletBright else Color.White.copy(alpha = 0.13f),
+                    ),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        containerColor = if (isSelected) Violet.copy(alpha = 0.18f) else SurfaceDeep,
+                        contentColor = if (isSelected) VioletBright else TextSecondary,
+                    ),
+                ) {
+                    Icon(
+                        if (instrument == InstrumentSound.Piano) Icons.Rounded.MusicNote else Icons.Rounded.GraphicEq,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(Modifier.width(7.dp))
+                    Text(instrument.label, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+        Spacer(Modifier.height(7.dp))
+        Text(
+            if (selected == InstrumentSound.Harmonium) {
+                "Harmonium holds each note steadily for its detected length."
+            } else {
+                "Piano now follows note length with a softer sustained release."
+            },
+            color = TextSecondary,
+            fontSize = 11.sp,
+            lineHeight = 16.sp,
+        )
+    }
 }
 
 @Composable
