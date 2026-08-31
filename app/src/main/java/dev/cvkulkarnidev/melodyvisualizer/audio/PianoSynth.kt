@@ -4,6 +4,7 @@ import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
 import dev.cvkulkarnidev.melodyvisualizer.music.MusicNote
+import dev.cvkulkarnidev.melodyvisualizer.music.DetectedNoteEvent
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
@@ -19,49 +20,56 @@ class PianoSynth {
     private val sampleCache = LinkedHashMap<Int, ShortArray>()
     private var activeTrack: AudioTrack? = null
     private var releaseTask: ScheduledFuture<*>? = null
+    private val sequenceTasks = mutableListOf<ScheduledFuture<*>>()
 
     fun play(note: MusicNote) {
         executor.execute {
+            cancelSequence()
+            playInternal(note)
+        }
+    }
+
+    fun playSequence(
+        notes: List<DetectedNoteEvent>,
+        onNote: (Int) -> Unit,
+        onComplete: () -> Unit,
+    ) {
+        executor.execute {
+            cancelSequence()
             releaseActiveTrack()
-            val samples = sampleCache.getOrPut(note.midi) { synthesize(note.frequencyHz) }
-            if (sampleCache.size > MAX_CACHED_NOTES) {
-                sampleCache.remove(sampleCache.keys.first())
+            if (notes.isEmpty()) {
+                onComplete()
+                return@execute
             }
-
-            val track = runCatching {
-                AudioTrack.Builder()
-                    .setAudioAttributes(
-                        AudioAttributes.Builder()
-                            .setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
-                            .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                            .build(),
-                    )
-                    .setAudioFormat(
-                        AudioFormat.Builder()
-                            .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-                            .setSampleRate(SAMPLE_RATE)
-                            .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
-                            .build(),
-                    )
-                    .setTransferMode(AudioTrack.MODE_STATIC)
-                    .setBufferSizeInBytes(samples.size * Short.SIZE_BYTES)
-                    .build()
-            }.getOrNull() ?: return@execute
-
-            activeTrack = track
-            track.write(samples, 0, samples.size)
-            track.setVolume(0.48f)
-            track.play()
-            releaseTask = executor.schedule(
-                { releaseActiveTrack() },
-                NOTE_DURATION_MILLIS + 80L,
+            val sequenceStart = notes.first().startMillis
+            notes.forEachIndexed { index, event ->
+                sequenceTasks += executor.schedule(
+                    {
+                        playInternal(event.note)
+                        onNote(index)
+                    },
+                    (event.startMillis - sequenceStart).coerceAtLeast(0L),
+                    TimeUnit.MILLISECONDS,
+                )
+            }
+            val endDelay = notes.last().endMillis - sequenceStart + 120L
+            sequenceTasks += executor.schedule(
+                {
+                    releaseActiveTrack()
+                    sequenceTasks.clear()
+                    onComplete()
+                },
+                endDelay,
                 TimeUnit.MILLISECONDS,
             )
         }
     }
 
     fun stop() {
-        executor.execute { releaseActiveTrack() }
+        executor.execute {
+            cancelSequence()
+            releaseActiveTrack()
+        }
     }
 
     fun release() {
@@ -77,6 +85,49 @@ class PianoSynth {
             track.release()
         }
         activeTrack = null
+    }
+
+    private fun cancelSequence() {
+        sequenceTasks.forEach { it.cancel(false) }
+        sequenceTasks.clear()
+    }
+
+    private fun playInternal(note: MusicNote) {
+        releaseActiveTrack()
+        val samples = sampleCache.getOrPut(note.midi) { synthesize(note.frequencyHz) }
+        if (sampleCache.size > MAX_CACHED_NOTES) {
+            sampleCache.remove(sampleCache.keys.first())
+        }
+
+        val track = runCatching {
+            AudioTrack.Builder()
+                .setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                        .build(),
+                )
+                .setAudioFormat(
+                    AudioFormat.Builder()
+                        .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                        .setSampleRate(SAMPLE_RATE)
+                        .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                        .build(),
+                )
+                .setTransferMode(AudioTrack.MODE_STATIC)
+                .setBufferSizeInBytes(samples.size * Short.SIZE_BYTES)
+                .build()
+        }.getOrNull() ?: return
+
+        activeTrack = track
+        track.write(samples, 0, samples.size)
+        track.setVolume(0.48f)
+        track.play()
+        releaseTask = executor.schedule(
+            { releaseActiveTrack() },
+            NOTE_DURATION_MILLIS + 80L,
+            TimeUnit.MILLISECONDS,
+        )
     }
 
     private fun synthesize(frequencyHz: Double): ShortArray {

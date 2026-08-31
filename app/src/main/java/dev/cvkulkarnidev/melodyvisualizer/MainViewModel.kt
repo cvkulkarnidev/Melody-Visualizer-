@@ -1,151 +1,262 @@
 package dev.cvkulkarnidev.melodyvisualizer
 
 import android.app.Application
+import android.net.Uri
+import android.provider.OpenableColumns
 import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
+import dev.cvkulkarnidev.melodyvisualizer.audio.AudioFileDecoder
+import dev.cvkulkarnidev.melodyvisualizer.audio.HummingRecorder
 import dev.cvkulkarnidev.melodyvisualizer.audio.PianoSynth
-import dev.cvkulkarnidev.melodyvisualizer.audio.PitchMonitor
-import dev.cvkulkarnidev.melodyvisualizer.music.MusicNote
-import dev.cvkulkarnidev.melodyvisualizer.music.PitchSmoother
+import dev.cvkulkarnidev.melodyvisualizer.music.DetectedNoteEvent
+import dev.cvkulkarnidev.melodyvisualizer.music.MelodyTranscriber
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
-data class PitchTrailPoint(
-    val midi: Int,
-    val timestampMillis: Long,
-    val confidence: Float,
-)
+enum class AnalysisStage {
+    Idle,
+    Decoding,
+    Transcribing,
+    Complete,
+    Error,
+}
 
 data class MelodyUiState(
-    val isListening: Boolean = false,
-    val note: MusicNote? = null,
-    val frequencyHz: Double? = null,
-    val cents: Int = 0,
-    val confidence: Float = 0f,
-    val inputLevel: Float = 0f,
-    val pianoEnabled: Boolean = false,
-    val trail: List<PitchTrailPoint> = emptyList(),
-    val recentNotes: List<MusicNote> = emptyList(),
+    val isRecording: Boolean = false,
+    val recordingDurationMillis: Long = 0L,
+    val recordingLevel: Float = 0f,
+    val stage: AnalysisStage = AnalysisStage.Idle,
+    val progress: Float = 0f,
+    val fileName: String? = null,
+    val audioDurationMillis: Long = 0L,
+    val notes: List<DetectedNoteEvent> = emptyList(),
+    val selectedNoteIndex: Int? = null,
+    val isPlaying: Boolean = false,
     val errorMessage: String? = null,
 )
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
-    private val pitchMonitor = PitchMonitor(application.applicationContext)
-    private val pitchSmoother = PitchSmoother()
+    private val appContext = application.applicationContext
+    private val recorder = HummingRecorder(appContext)
+    private val decoder = AudioFileDecoder(appContext)
     private val pianoSynth = PianoSynth()
 
     private val _uiState = MutableStateFlow(MelodyUiState())
     val uiState: StateFlow<MelodyUiState> = _uiState.asStateFlow()
 
-    private var lastPlayedMidi: Int? = null
+    private var recordingTimerJob: Job? = null
+    private var analysisJob: Job? = null
+    private var recordingStartedAt = 0L
 
-    fun startListening() {
-        if (_uiState.value.isListening) return
-        pitchSmoother.reset()
-        lastPlayedMidi = null
-        _uiState.update { it.copy(isListening = true, errorMessage = null) }
-
-        pitchMonitor.start(
-            onAnalysis = { analysis ->
-                val smoothed = pitchSmoother.update(analysis.detection)
-                val now = System.currentTimeMillis()
-                val previousState = _uiState.value
-
-                if (smoothed != null && smoothed.confidence > 0f) {
-                    val noteChanged = previousState.note?.midi != smoothed.note.midi
-                    val nextRecentNotes = if (noteChanged) {
-                        (previousState.recentNotes + smoothed.note).takeLast(MAX_RECENT_NOTES)
-                    } else {
-                        previousState.recentNotes
-                    }
-                    val nextTrail = (
-                        previousState.trail.filter { now - it.timestampMillis <= TRAIL_WINDOW_MILLIS } +
-                            PitchTrailPoint(smoothed.note.midi, now, smoothed.confidence)
-                        ).takeLast(MAX_TRAIL_POINTS)
-
-                    _uiState.value = previousState.copy(
-                        note = smoothed.note,
-                        frequencyHz = smoothed.frequencyHz,
-                        cents = smoothed.cents,
-                        confidence = smoothed.confidence,
-                        inputLevel = analysis.level,
-                        trail = nextTrail,
-                        recentNotes = nextRecentNotes,
-                    )
-
-                    if (
-                        previousState.pianoEnabled &&
-                        noteChanged &&
-                        lastPlayedMidi != smoothed.note.midi
-                    ) {
-                        pianoSynth.play(smoothed.note)
-                        lastPlayedMidi = smoothed.note.midi
-                    }
-                } else {
-                    _uiState.update {
-                        it.copy(
-                            note = smoothed?.note,
-                            frequencyHz = null,
-                            cents = 0,
-                            confidence = 0f,
-                            inputLevel = analysis.level,
-                            trail = it.trail.filter { point ->
-                                now - point.timestampMillis <= TRAIL_WINDOW_MILLIS
-                            },
-                        )
-                    }
-                    if (smoothed == null) lastPlayedMidi = null
-                }
-            },
-            onError = { message ->
+    fun startRecording() {
+        if (_uiState.value.isRecording) return
+        analysisJob?.cancel()
+        pianoSynth.stop()
+        runCatching { recorder.start() }
+            .onFailure { error ->
                 _uiState.update {
-                    it.copy(isListening = false, note = null, errorMessage = message)
+                    it.copy(
+                        stage = AnalysisStage.Error,
+                        errorMessage = error.message ?: "The recording could not be started.",
+                    )
                 }
+                return
+            }
+
+        recordingStartedAt = System.currentTimeMillis()
+        _uiState.value = MelodyUiState(isRecording = true)
+        recordingTimerJob = viewModelScope.launch {
+            while (isActive && _uiState.value.isRecording) {
+                _uiState.update {
+                    it.copy(
+                        recordingDurationMillis = System.currentTimeMillis() - recordingStartedAt,
+                        recordingLevel = recorder.currentLevel(),
+                    )
+                }
+                delay(60L)
+            }
+        }
+    }
+
+    fun finishRecordingAndAnalyze() {
+        if (!_uiState.value.isRecording) return
+        recordingTimerJob?.cancel()
+        val duration = System.currentTimeMillis() - recordingStartedAt
+        if (duration < MINIMUM_RECORDING_MILLIS) {
+            recorder.cancel()
+            _uiState.update {
+                it.copy(
+                    isRecording = false,
+                    recordingDurationMillis = 0L,
+                    recordingLevel = 0f,
+                    stage = AnalysisStage.Error,
+                    errorMessage = "Please record for at least one second.",
+                )
+            }
+            return
+        }
+
+        runCatching { recorder.stop() }
+            .onSuccess { recording ->
+                _uiState.update { it.copy(isRecording = false, recordingLevel = 0f) }
+                analyzeAudio(recording.uri, recording.displayName)
+            }
+            .onFailure { error ->
+                _uiState.update {
+                    it.copy(
+                        isRecording = false,
+                        recordingLevel = 0f,
+                        stage = AnalysisStage.Error,
+                        errorMessage = error.message ?: "The recording could not be completed.",
+                    )
+                }
+            }
+    }
+
+    fun cancelRecording() {
+        recordingTimerJob?.cancel()
+        recorder.cancel()
+        _uiState.value = MelodyUiState()
+    }
+
+    fun analyzeUploadedAudio(uri: Uri) {
+        analyzeAudio(uri, resolveDisplayName(uri))
+    }
+
+    fun selectNote(index: Int) {
+        val note = _uiState.value.notes.getOrNull(index) ?: return
+        pianoSynth.play(note.note)
+        _uiState.update { it.copy(selectedNoteIndex = index) }
+    }
+
+    fun playMelody() {
+        val notes = _uiState.value.notes
+        if (notes.isEmpty()) return
+        _uiState.update { it.copy(isPlaying = true, selectedNoteIndex = 0) }
+        pianoSynth.playSequence(
+            notes = notes,
+            onNote = { index ->
+                _uiState.update { it.copy(isPlaying = true, selectedNoteIndex = index) }
+            },
+            onComplete = {
+                _uiState.update { it.copy(isPlaying = false) }
             },
         )
     }
 
-    fun stopListening() {
-        pitchMonitor.stop()
+    fun stopPlayback() {
         pianoSynth.stop()
-        pitchSmoother.reset()
-        lastPlayedMidi = null
+        _uiState.update { it.copy(isPlaying = false) }
+    }
+
+    fun reset() {
+        analysisJob?.cancel()
+        recordingTimerJob?.cancel()
+        recorder.cancel()
+        pianoSynth.stop()
+        _uiState.value = MelodyUiState()
+    }
+
+    fun clearError() {
         _uiState.update {
             it.copy(
-                isListening = false,
-                note = null,
-                frequencyHz = null,
-                cents = 0,
-                confidence = 0f,
-                inputLevel = 0f,
+                stage = if (it.notes.isEmpty()) AnalysisStage.Idle else AnalysisStage.Complete,
+                errorMessage = null,
             )
         }
     }
 
-    fun setPianoEnabled(enabled: Boolean) {
-        _uiState.update { it.copy(pianoEnabled = enabled) }
-        if (!enabled) pianoSynth.stop()
-        lastPlayedMidi = if (enabled) null else lastPlayedMidi
+    private fun analyzeAudio(uri: Uri, displayName: String) {
+        analysisJob?.cancel()
+        pianoSynth.stop()
+        analysisJob = viewModelScope.launch {
+            _uiState.value = MelodyUiState(
+                stage = AnalysisStage.Decoding,
+                fileName = displayName,
+                progress = 0.02f,
+            )
+            runCatching {
+                val decoded = withContext(Dispatchers.IO) {
+                    decoder.decode(uri) { progress ->
+                        _uiState.update {
+                            it.copy(stage = AnalysisStage.Decoding, progress = progress.coerceIn(0f, 0.5f))
+                        }
+                    }
+                }
+                _uiState.update {
+                    it.copy(
+                        stage = AnalysisStage.Transcribing,
+                        progress = 0.5f,
+                        audioDurationMillis = decoded.durationMillis,
+                    )
+                }
+                val notes = withContext(Dispatchers.Default) {
+                    MelodyTranscriber(sampleRate = decoded.sampleRate).transcribe(decoded.samples) { progress ->
+                        _uiState.update {
+                            it.copy(
+                                stage = AnalysisStage.Transcribing,
+                                progress = 0.5f + progress.coerceIn(0f, 1f) * 0.5f,
+                            )
+                        }
+                    }
+                }
+                notes to decoded.durationMillis
+            }.onSuccess { (notes, durationMillis) ->
+                _uiState.update {
+                    it.copy(
+                        stage = AnalysisStage.Complete,
+                        progress = 1f,
+                        audioDurationMillis = durationMillis,
+                        notes = notes,
+                        selectedNoteIndex = notes.indices.firstOrNull(),
+                        errorMessage = null,
+                    )
+                }
+            }.onFailure { error ->
+                _uiState.update {
+                    it.copy(
+                        stage = AnalysisStage.Error,
+                        errorMessage = error.message ?: "This audio file could not be analyzed.",
+                    )
+                }
+            }
+        }
     }
 
-    fun playCurrentNote() {
-        _uiState.value.note?.let(pianoSynth::play)
-    }
-
-    fun clearError() {
-        _uiState.update { it.copy(errorMessage = null) }
+    private fun resolveDisplayName(uri: Uri): String {
+        val cursor = runCatching {
+            appContext.contentResolver.query(
+                uri,
+                arrayOf(OpenableColumns.DISPLAY_NAME),
+                null,
+                null,
+                null,
+            )
+        }.getOrNull()
+        cursor?.use {
+            if (it.moveToFirst()) {
+                val index = it.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                if (index >= 0) return it.getString(index)
+            }
+        }
+        return "Uploaded humming audio"
     }
 
     override fun onCleared() {
-        pitchMonitor.release()
+        recorder.release()
         pianoSynth.release()
         super.onCleared()
     }
 
     private companion object {
-        const val TRAIL_WINDOW_MILLIS = 6_000L
-        const val MAX_TRAIL_POINTS = 150
-        const val MAX_RECENT_NOTES = 10
+        const val MINIMUM_RECORDING_MILLIS = 1_000L
     }
 }

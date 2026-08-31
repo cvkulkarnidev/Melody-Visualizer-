@@ -1,32 +1,43 @@
 # Melody Visualizer
 
-An offline-first Android app that turns a sung or hummed melody into piano notes in real time.
+An offline Android app that turns a completed humming, singing, or whistling recording into timed piano notes.
 
-## Version 0.1
+## Version 0.2
 
-The first testable version includes:
+The app now has the two input choices intended for humming transcription:
 
-- live microphone pitch detection using an on-device YIN implementation;
-- confidence and silence rejection;
-- median smoothing and note-change hysteresis to reduce flicker;
-- detected note, frequency, cents and input-level feedback;
-- a six-second piano-roll trail and highlighted two-octave keyboard;
-- recent-note history;
-- an offline, synthesized piano tone with automatic and tap-to-play modes;
-- no account, internet permission, analytics, recording upload or audio storage.
+1. **Record humming** — tap the microphone, hum the melody, then press **Done · Analyze**.
+2. **Upload audio** — choose an existing audio recording from the phone.
 
-The home screen contains the intended two product modes. **Sing or hum** is functional in this release. **Listen to a song** is presented as the next milestone because it requires integrating and benchmarking a compact on-device vocal-separation model; the app does not pretend mixed-song transcription is ready before that work is complete.
+There is no live pitch visualization while recording. Both paths wait for a completed recording and then run the same fully on-device analysis.
 
-## How it works
+### Included
 
-1. `AudioRecord` captures 44.1 kHz mono PCM frames.
-2. YIN estimates the fundamental frequency for each 2,048-sample frame.
-3. Low-confidence and silent frames are rejected.
-4. A rolling median and semitone hysteresis stabilize note changes.
-5. Frequency is mapped to equal-tempered MIDI using A4 = 440 Hz.
-6. Compose draws the piano roll and keyboard; `AudioTrack` generates the optional piano-like sound locally.
+- in-app AAC/M4A microphone recording with timer and level feedback;
+- Android audio-file picker for common formats supported by `MediaExtractor`/`MediaCodec`;
+- stereo-to-mono conversion and resampling to 44.1 kHz;
+- full-file pitch detection using YIN;
+- confidence rejection, median smoothing and note-change hysteresis;
+- segmentation into timed note events with short-note filtering and gap merging;
+- timeline piano roll, highlighted piano keyboard and tappable note sequence;
+- playback of the complete detected melody using locally synthesized piano tones;
+- progress, empty-result and unsupported-audio states;
+- no account, server, internet permission, analytics or audio upload.
 
-For best results, hum one note at a time about 15–30 cm from the microphone. Headphones are recommended when automatic piano sound is enabled, otherwise the microphone may hear the phone's speaker.
+The current transcription path is intended for one clear voice, hum, or whistle without background music. Vocal separation for fully mixed commercial songs remains a separate on-device milestone.
+
+## Processing pipeline
+
+1. The user finishes an in-app recording or selects an audio file.
+2. `MediaExtractor` and `MediaCodec` decode the audio to PCM in memory.
+3. Channels are mixed to mono and resampled to 44.1 kHz when necessary.
+4. YIN analyzes overlapping 2,048-sample frames.
+5. Low-confidence and silent frames are rejected.
+6. A rolling median and semitone hysteresis stabilize the pitch track.
+7. Stable frames are grouped into timed, equal-tempered MIDI note events using A4 = 440 Hz.
+8. Compose draws the timeline and keyboard; `AudioTrack` plays the detected melody locally.
+
+Record one note at a time in a quiet room for the clearest result. Recordings are limited to two minutes in this test release.
 
 ## Build
 
@@ -38,15 +49,8 @@ Requirements: JDK 17 and Android SDK 36.
 
 The APK is written to `app/build/outputs/apk/debug/app-debug.apk`.
 
-GitHub Actions runs tests and publishes an installable debug APK as an artifact for every push. Tags beginning with `v` also create a GitHub Release containing the APK.
-
-## Roadmap
-
-- benchmark compact two-stem vocal separators on representative Android devices;
-- integrate chunked STFT → vocal mask → ISTFT processing;
-- run isolated vocals through an on-device melody transcription model;
-- add editable note segmentation, tempo controls and saved transcriptions.
+GitHub Actions runs unit tests and publishes an installable debug APK for every version on `main`.
 
 ## Privacy
 
-The app requests only microphone access. Version 0.1 processes microphone frames in memory and does not save or transmit audio.
+Microphone access is used only for the **Record humming** option. Audio-file upload means selecting a local file for local processing; the app does not transmit it. Temporary in-app recordings are stored in the application cache.
