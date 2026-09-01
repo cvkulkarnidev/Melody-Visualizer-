@@ -8,3 +8,4 @@ captures/
 .cxx/
 *.apk
 !releases/*.apk
+app/src/main/assets/models/spleeter_vocals_fp16.onnx

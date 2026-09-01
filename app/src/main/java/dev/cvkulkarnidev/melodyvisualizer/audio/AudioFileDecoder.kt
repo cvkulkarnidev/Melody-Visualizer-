@@ -13,11 +13,13 @@ import kotlin.math.roundToInt
 
 data class DecodedAudio(
     val samples: ShortArray,
+    val leftSamples: ShortArray,
+    val rightSamples: ShortArray,
     val sampleRate: Int,
     val durationMillis: Long,
 )
 
-/** Decodes common Android audio formats to mono 16-bit PCM without writing a temporary file. */
+/** Decodes common Android audio formats to stereo and mono 16-bit PCM in memory. */
 class AudioFileDecoder(private val context: Context) {
     suspend fun decode(
         uri: Uri,
@@ -41,7 +43,7 @@ class AudioFileDecoder(private val context: Context) {
                 ?.getLong(MediaFormat.KEY_DURATION)
                 ?: 0L
             if (sourceDurationUs > MAX_DURATION_US) {
-                error("Please choose a humming recording shorter than ${MAX_DURATION_US / 60_000_000} minutes.")
+                error("Please choose audio shorter than ${MAX_DURATION_US / 60_000_000} minutes.")
             }
 
             extractor.selectTrack(trackIndex)
@@ -51,7 +53,8 @@ class AudioFileDecoder(private val context: Context) {
             }
             codec = decoder
 
-            val pcm = ShortArrayBuilder()
+            val leftPcm = ShortArrayBuilder()
+            val rightPcm = ShortArrayBuilder()
             val bufferInfo = MediaCodec.BufferInfo()
             var inputEnded = false
             var outputEnded = false
@@ -119,11 +122,12 @@ class AudioFileDecoder(private val context: Context) {
                             ?: error("The decoder returned an invalid output buffer.")
                         outputBuffer.position(bufferInfo.offset)
                         outputBuffer.limit(bufferInfo.offset + bufferInfo.size)
-                        appendMonoPcm(
+                        appendStereoPcm(
                             buffer = outputBuffer.slice().order(ByteOrder.nativeOrder()),
                             encoding = pcmEncoding,
                             channelCount = outputChannels,
-                            destination = pcm,
+                            leftDestination = leftPcm,
+                            rightDestination = rightPcm,
                         )
                         decoder.releaseOutputBuffer(outputIndex, false)
                         outputEnded = bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0
@@ -131,16 +135,19 @@ class AudioFileDecoder(private val context: Context) {
                 }
             }
 
-            if (pcm.size == 0) error("The selected file did not contain decodable audio.")
-            val sourceSamples = pcm.toArray()
-            val outputSamples = if (outputSampleRate == TARGET_SAMPLE_RATE) {
-                sourceSamples
-            } else {
-                resampleLinear(sourceSamples, outputSampleRate, TARGET_SAMPLE_RATE)
-            }
-            val durationMillis = outputSamples.size * 1_000L / TARGET_SAMPLE_RATE
+            if (leftPcm.size == 0) error("The selected file did not contain decodable audio.")
+            val leftSamples = PcmResampler.linear(leftPcm.toArray(), outputSampleRate, TARGET_SAMPLE_RATE)
+            val rightSamples = PcmResampler.linear(rightPcm.toArray(), outputSampleRate, TARGET_SAMPLE_RATE)
+            val monoSamples = PcmChannelMixer.mono(leftSamples, rightSamples)
+            val durationMillis = monoSamples.size * 1_000L / TARGET_SAMPLE_RATE
             onProgress(0.5f)
-            return DecodedAudio(outputSamples, TARGET_SAMPLE_RATE, durationMillis)
+            return DecodedAudio(
+                samples = monoSamples,
+                leftSamples = leftSamples,
+                rightSamples = rightSamples,
+                sampleRate = TARGET_SAMPLE_RATE,
+                durationMillis = durationMillis,
+            )
         } finally {
             runCatching { codec?.stop() }
             codec?.release()
@@ -148,33 +155,34 @@ class AudioFileDecoder(private val context: Context) {
         }
     }
 
-    private fun appendMonoPcm(
+    private fun appendStereoPcm(
         buffer: java.nio.ByteBuffer,
         encoding: Int,
         channelCount: Int,
-        destination: ShortArrayBuilder,
+        leftDestination: ShortArrayBuilder,
+        rightDestination: ShortArrayBuilder,
     ) {
         val channels = channelCount.coerceAtLeast(1)
         when (encoding) {
             AudioFormat.ENCODING_PCM_16BIT -> {
                 val samples = buffer.asShortBuffer()
                 while (samples.remaining() >= channels) {
-                    var sum = 0
-                    repeat(channels) { sum += samples.get().toInt() }
-                    destination.add((sum / channels).toShort())
+                    val left = samples.get()
+                    val right = if (channels > 1) samples.get() else left
+                    repeat((channels - 2).coerceAtLeast(0)) { samples.get() }
+                    leftDestination.add(left)
+                    rightDestination.add(right)
                 }
             }
 
             AudioFormat.ENCODING_PCM_FLOAT -> {
                 val samples = buffer.asFloatBuffer()
                 while (samples.remaining() >= channels) {
-                    var sum = 0f
-                    repeat(channels) { sum += samples.get() }
-                    destination.add(
-                        ((sum / channels).coerceIn(-1f, 1f) * Short.MAX_VALUE)
-                            .roundToInt()
-                            .toShort(),
-                    )
+                    val left = samples.get()
+                    val right = if (channels > 1) samples.get() else left
+                    repeat((channels - 2).coerceAtLeast(0)) { samples.get() }
+                    leftDestination.add(floatToShort(left))
+                    rightDestination.add(floatToShort(right))
                 }
             }
 
@@ -182,21 +190,8 @@ class AudioFileDecoder(private val context: Context) {
         }
     }
 
-    private fun resampleLinear(input: ShortArray, sourceRate: Int, targetRate: Int): ShortArray {
-        require(sourceRate > 0 && targetRate > 0)
-        if (input.isEmpty()) return input
-        val outputSize = (input.size.toLong() * targetRate / sourceRate).toInt().coerceAtLeast(1)
-        val scale = sourceRate.toDouble() / targetRate
-        return ShortArray(outputSize) { outputIndex ->
-            val sourcePosition = outputIndex * scale
-            val leftIndex = sourcePosition.toInt().coerceIn(0, input.lastIndex)
-            val rightIndex = (leftIndex + 1).coerceAtMost(input.lastIndex)
-            val fraction = sourcePosition - leftIndex
-            (input[leftIndex] * (1.0 - fraction) + input[rightIndex] * fraction)
-                .roundToInt()
-                .toShort()
-        }
-    }
+    private fun floatToShort(value: Float): Short =
+        (value.coerceIn(-1f, 1f) * Short.MAX_VALUE).roundToInt().toShort()
 
     private fun MediaFormat.getIntegerOrDefault(key: String, default: Int): Int =
         if (containsKey(key)) getInteger(key) else default

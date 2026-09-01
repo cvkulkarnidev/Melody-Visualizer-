@@ -223,7 +223,7 @@ private fun HomeScreen(
         )
         Spacer(Modifier.height(12.dp))
         Text(
-            text = "First finish your recording. Then the app analyzes the complete melody on your phone.",
+            text = "Record a melody or choose a song. The app cleans the audio and finds the notes on your phone.",
             color = TextSecondary,
             fontSize = 16.sp,
             lineHeight = 24.sp,
@@ -243,7 +243,7 @@ private fun HomeScreen(
             icon = Icons.Rounded.UploadFile,
             eyebrow = "CHOOSE AN AUDIO FILE",
             title = "Upload audio",
-            description = "Select an existing humming, singing, or whistling recording.",
+            description = "Select a song or recording. The vocal is isolated automatically before note detection.",
             accent = Aqua,
             onClick = onUpload,
         )
@@ -252,7 +252,7 @@ private fun HomeScreen(
         PrivacyPill()
         Spacer(Modifier.height(18.dp))
         Text(
-            text = "For the clearest notes, record one melody without background music. Mixed-song vocal isolation will be added separately.",
+            text = "Uploaded songs are split on-device. Clean solo melodies still give the most accurate notes.",
             color = TextSecondary.copy(alpha = 0.82f),
             fontSize = 12.sp,
             lineHeight = 18.sp,
@@ -447,7 +447,7 @@ private fun RecordingScreen(
         }
         Spacer(Modifier.height(26.dp))
         Text(
-            "Hum one note at a time in a quiet room. The recording is analyzed only after you press Done.",
+            "Hum one note at a time. After Done, background noise is reduced before the notes are detected.",
             color = TextSecondary,
             fontSize = 12.sp,
             lineHeight = 18.sp,
@@ -533,11 +533,13 @@ private fun ResultScreen(
     Column(
         modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 18.dp),
     ) {
-        TopBar("Piano notes", onBack)
+        TopBar("Melody notes", onBack)
         Spacer(Modifier.height(16.dp))
 
         when (state.stage) {
             AnalysisStage.Decoding,
+            AnalysisStage.Separating,
+            AnalysisStage.Cleaning,
             AnalysisStage.Transcribing,
             -> ProcessingCard(state)
 
@@ -580,7 +582,12 @@ private fun ProcessingCard(state: MelodyUiState) {
             }
             Spacer(Modifier.height(20.dp))
             Text(
-                if (state.stage == AnalysisStage.Transcribing) "Finding piano notes…" else "Preparing your audio…",
+                when (state.stage) {
+                    AnalysisStage.Separating -> "Isolating the vocal…"
+                    AnalysisStage.Cleaning -> "Removing background noise…"
+                    AnalysisStage.Transcribing -> "Finding melody notes…"
+                    else -> "Preparing your audio…"
+                },
                 color = TextPrimary,
                 fontSize = 22.sp,
                 fontWeight = FontWeight.Bold,
@@ -624,6 +631,9 @@ private fun CompletedResult(
     onRecordAgain: () -> Unit,
     onUploadAnother: () -> Unit,
 ) {
+    ProcessingReport(state)
+    Spacer(Modifier.height(12.dp))
+
     if (state.notes.isEmpty()) {
         EmptyResultCard()
         Spacer(Modifier.height(16.dp))
@@ -680,6 +690,49 @@ private fun CompletedResult(
     }
     Spacer(Modifier.height(12.dp))
     RetryButtons(onRecordAgain, onUploadAnother)
+}
+
+@Composable
+private fun ProcessingReport(state: MelodyUiState) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = SurfaceDeep.copy(alpha = 0.78f)),
+        shape = RoundedCornerShape(18.dp),
+        border = BorderStroke(1.dp, Mint.copy(alpha = 0.16f)),
+    ) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 15.dp, vertical = 12.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                if (state.vocalIsolationApplied) {
+                    ProcessingChip("VOCALS ISOLATED")
+                }
+                if (state.noiseReductionApplied) {
+                    ProcessingChip("NOISE REDUCED")
+                }
+                if (!state.vocalIsolationApplied && !state.noiseReductionApplied) {
+                    Text("ORIGINAL AUDIO ANALYZED", color = TextSecondary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+            state.processingWarning?.let { warning ->
+                Spacer(Modifier.height(7.dp))
+                Text(warning, color = TextSecondary, fontSize = 11.sp, lineHeight = 16.sp)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProcessingChip(label: String) {
+    Row(
+        modifier = Modifier
+            .clip(CircleShape)
+            .background(Mint.copy(alpha = 0.10f))
+            .padding(horizontal = 9.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(Icons.Rounded.Check, contentDescription = null, tint = Mint, modifier = Modifier.size(13.dp))
+        Spacer(Modifier.width(5.dp))
+        Text(label, color = Mint, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.6.sp)
+    }
 }
 
 @Composable

@@ -14,8 +14,13 @@ android {
         applicationId = "dev.cvkulkarnidev.melodyvisualizer"
         minSdk = 26
         targetSdk = 36
-        versionCode = 3
-        versionName = "0.3.0"
+        versionCode = 4
+        versionName = "0.4.0"
+
+        // The neural audio libraries are large. This test APK targets modern Android phones.
+        ndk {
+            abiFilters += "arm64-v8a"
+        }
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -44,7 +49,7 @@ android {
     }
 
     androidResources {
-        noCompress += "tflite"
+        noCompress += listOf("tflite", "onnx")
     }
 }
 
@@ -67,6 +72,9 @@ dependencies {
     implementation(libs.androidx.compose.material3)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.litert)
+    implementation(libs.onnxruntime.android)
+    implementation(libs.deepfilternet)
+    implementation(libs.jtransforms)
 
     debugImplementation(libs.androidx.compose.ui.tooling)
 

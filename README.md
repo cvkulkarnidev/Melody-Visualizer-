@@ -1,63 +1,65 @@
 # Melody Visualizer
 
-An offline Android app that turns a completed humming, singing, or whistling recording into timed piano notes.
+An offline Android app that turns humming, singing, or a mixed song into timed melody notes shown on a piano.
 
-## Version 0.3
+## Version 0.4
 
-The app now has the two input choices intended for humming transcription:
+The app has two completed-audio workflows:
 
-1. **Record humming** — tap the microphone, hum the melody, then press **Done · Analyze**.
-2. **Upload audio** — choose an existing audio recording from the phone.
+1. **Record humming** — tap the microphone, hum or sing, then press **Done · Analyze**. A gentle neural noise reducer cleans the recording before transcription.
+2. **Upload audio** — choose a song or voice recording. A Spleeter vocal model isolates the vocal stem, a gentle noise reducer cleans it, and the pitch detector finds the melody.
 
-There is no live pitch visualization while recording. Both paths wait for a completed recording and then run the same fully on-device analysis.
+Everything runs on the phone after installation. The app has no account, server, analytics, Internet permission, or audio upload.
 
 ### Included
 
 - in-app AAC/M4A microphone recording with timer and level feedback;
-- Android audio-file picker for common formats supported by `MediaExtractor`/`MediaCodec`;
-- stereo-to-mono conversion and resampling to 44.1 kHz;
-- neural note/onset transcription using Spotify Basic Pitch's bundled TFLite model;
-- a second YIN acoustic tracker that cross-checks uncertain notes and octave errors;
-- confidence rejection, median smoothing, note-change hysteresis and event reconciliation;
-- segmentation into timed note events with short-note filtering and gap merging;
-- timeline piano roll, highlighted piano keyboard and tappable note sequence;
-- selectable piano and harmonium playback that follows every detected note length;
-- a longer piano decay/release and a steadily sustained harmonium envelope;
-- progress, empty-result and unsupported-audio states;
-- no account, server, internet permission, analytics or audio upload.
+- Android audio picker for formats supported by `MediaExtractor`/`MediaCodec`;
+- stereo-preserving 44.1 kHz decoding for vocal separation;
+- Spleeter 2-stem vocal-mask inference through ONNX Runtime;
+- DeepFilterNet-based background-noise reduction;
+- hybrid Spotify Basic Pitch and YIN note detection;
+- confidence filtering, onset evidence, median smoothing, and octave reconciliation;
+- timed piano roll, highlighted keyboard, and tappable note sequence;
+- sustained local piano and harmonium playback;
+- progress and fallback messages for every processing stage.
 
-The current transcription path is intended for one clear voice, hum, or whistle without background music. Vocal separation for fully mixed commercial songs remains a separate on-device milestone.
+The current test APK targets 64-bit ARM Android phones (`arm64-v8a`) and limits recordings to two minutes. Vocal splitting improves mixed songs, but dense arrangements, heavy reverb, doubled vocals, and very quiet singers can still reduce note accuracy.
 
 ## Processing pipeline
 
-1. The user finishes an in-app recording or selects an audio file.
-2. `MediaExtractor` and `MediaCodec` decode the audio to PCM in memory.
-3. Channels are mixed to mono and resampled to 44.1 kHz when necessary.
-4. The bundled Basic Pitch TFLite network analyzes 2-second overlapping windows at 22.05 kHz.
-5. Its note energy and onset evidence are decoded into monophonic timed note candidates.
-6. YIN independently analyzes overlapping 2,048-sample frames, rejecting silence and low-confidence pitch.
-7. The tracks are reconciled: agreement raises confidence, strong acoustic evidence can repair an octave error, and reliable missed notes can be recovered.
-8. Stable events are mapped to equal-tempered MIDI notes using A4 = 440 Hz.
-9. Compose draws the timeline and keyboard; `AudioTrack` synthesizes piano or harmonium playback locally.
+### In-app recording
 
-Record one note at a time in a quiet room for the clearest result. Recordings are limited to two minutes in this test release.
+1. Decode the completed recording to mono PCM.
+2. Resample to 48 kHz and apply gentle DeepFilterNet cleanup.
+3. Resample to 44.1 kHz and run Basic Pitch plus YIN.
+4. Reconcile, smooth, and segment the pitch evidence into note events.
+
+### Uploaded audio
+
+1. Decode and preserve the left and right channels at 44.1 kHz.
+2. Compute a 4,096-point stereo STFT and run the Spleeter vocal model in 512-frame chunks.
+3. Apply the learned vocal mask, invert the STFT, and mix the vocal stem to mono.
+4. Apply gentle DeepFilterNet cleanup and run the hybrid note detector.
+5. Draw the result and play it with the chosen local instrument.
+
+If either cleanup model is unavailable on a device, analysis continues with the best available audio and the result screen reports the fallback.
 
 ## Build
 
-Requirements: JDK 17 and Android SDK 36.
+Requirements: JDK 17, Android SDK 36, and an Android 64-bit ARM target.
+
+Download and verify the Spleeter model before building:
 
 ```bash
+bash scripts/download_spleeter_model.sh
 ./gradlew testDebugUnitTest assembleDebug
 ```
 
-The APK is written to `app/build/outputs/apk/debug/app-debug.apk`.
-
-GitHub Actions runs unit tests and publishes an installable debug APK for every version on `main`.
+The APK is written to `app/build/outputs/apk/debug/app-debug.apk`. GitHub Actions downloads the same checksum-pinned model, runs unit tests, builds the APK, and publishes it on every `main` push.
 
 ## Privacy
 
-Microphone access is used only for the **Record humming** option. Audio-file upload means selecting a local file for local processing; the app does not transmit it. Temporary in-app recordings are stored in the application cache.
+Microphone access is used only for **Record humming**. Choosing an audio file grants local read access to that file. Audio and intermediate vocal data stay in memory or app-private storage and are never transmitted.
 
-## Third-party model
-
-The bundled Basic Pitch model is provided by Spotify under the Apache License 2.0. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+See `THIRD_PARTY_NOTICES.md` for model and library attribution.

@@ -9,6 +9,9 @@ material3 = "1.4.0"
 materialIcons = "1.7.8"
 coroutines = "1.11.0"
 litert = "1.4.2"
+onnxruntime = "1.22.0"
+deepFilterNet = "0.0.8"
+jTransforms = "3.1"
 junit = "4.13.2"
 
 [libraries]
@@ -25,6 +28,9 @@ androidx-compose-material-icons = { module = "androidx.compose.material:material
 androidx-compose-material3 = { module = "androidx.compose.material3:material3", version.ref = "material3" }
 kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "coroutines" }
 litert = { module = "com.google.ai.edge.litert:litert", version.ref = "litert" }
+onnxruntime-android = { module = "com.microsoft.onnxruntime:onnxruntime-android", version.ref = "onnxruntime" }
+deepfilternet = { module = "io.github.kaleyravideo:android-deepfilternet", version.ref = "deepFilterNet" }
+jtransforms = { module = "com.github.wendykierp:JTransforms", version.ref = "jTransforms" }
 junit = { module = "junit:junit", version.ref = "junit" }
 
 [plugins]

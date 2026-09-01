@@ -36,6 +36,9 @@ jobs:
       - name: Make Gradle executable
         run: chmod +x gradlew
 
+      - name: Download on-device vocal separation model
+        run: bash scripts/download_spleeter_model.sh
+
       - name: Run unit tests and build APK
         run: ./gradlew testDebugUnitTest assembleDebug --stacktrace
 

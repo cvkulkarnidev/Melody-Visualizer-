@@ -1,0 +1,12 @@
+Melody Visualizer third-party components
+
+Spotify Basic Pitch - Apache License 2.0
+Deezer Spleeter - MIT License
+sherpa-onnx model conversion - Apache License 2.0
+AndroidDeepFilterNet - Apache License 2.0
+DeepFilterNet - Apache License 2.0 or MIT
+Microsoft ONNX Runtime - MIT License
+JTransforms - BSD 2-Clause License
+
+Project URLs, model checksums, copyright notices, and license details are in
+THIRD_PARTY_NOTICES.md in the source repository.
