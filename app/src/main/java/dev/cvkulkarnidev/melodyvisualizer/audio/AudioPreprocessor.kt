@@ -5,6 +5,7 @@ import kotlinx.coroutines.CancellationException
 
 data class PreprocessedAudio(
     val samples: ShortArray,
+    val alternateSamples: ShortArray? = null,
     val vocalIsolationApplied: Boolean,
     val noiseReductionApplied: Boolean,
     val warning: String? = null,
@@ -48,6 +49,10 @@ class AudioPreprocessor(context: Context) : AutoCloseable {
             }
         }
 
+        // Keep the pre-cleanup signal as a second pitch candidate. Speech denoisers sometimes
+        // attenuate breathy fundamentals or strong harmonics in singing, so the pitch stage can
+        // score both versions and retain the more coherent contour.
+        val preCleanupSamples = workingSamples
         onCleaningProgress(0f)
         runCatching {
             noiseReducer.reduce(
@@ -65,6 +70,7 @@ class AudioPreprocessor(context: Context) : AutoCloseable {
 
         return PreprocessedAudio(
             samples = workingSamples,
+            alternateSamples = preCleanupSamples.takeUnless { it === workingSamples },
             vocalIsolationApplied = separationApplied,
             noiseReductionApplied = noiseReductionApplied,
             warning = warnings.takeIf { it.isNotEmpty() }?.joinToString(" "),

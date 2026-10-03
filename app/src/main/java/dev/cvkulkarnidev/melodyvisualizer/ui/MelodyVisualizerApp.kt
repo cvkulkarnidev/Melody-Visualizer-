@@ -585,7 +585,7 @@ private fun ProcessingCard(state: MelodyUiState) {
                 when (state.stage) {
                     AnalysisStage.Separating -> "Isolating the vocal…"
                     AnalysisStage.Cleaning -> "Removing background noise…"
-                    AnalysisStage.Transcribing -> "Finding melody notes…"
+                    AnalysisStage.Transcribing -> "Tracking and tuning melody…"
                     else -> "Preparing your audio…"
                 },
                 color = TextPrimary,
@@ -708,6 +708,7 @@ private fun ProcessingReport(state: MelodyUiState) {
                 if (state.noiseReductionApplied) {
                     ProcessingChip("NOISE REDUCED")
                 }
+                ProcessingChip("A4 440 TUNED")
                 if (!state.vocalIsolationApplied && !state.noiseReductionApplied) {
                     Text("ORIGINAL AUDIO ANALYZED", color = TextSecondary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                 }

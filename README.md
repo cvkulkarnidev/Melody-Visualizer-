@@ -2,7 +2,7 @@
 
 An offline Android app that turns humming, singing, or a mixed song into timed melody notes shown on a piano.
 
-## Version 0.4
+## Version 0.5
 
 The app has two completed-audio workflows:
 
@@ -18,8 +18,11 @@ Everything runs on the phone after installation. The app has no account, server,
 - stereo-preserving 44.1 kHz decoding for vocal separation;
 - Spleeter 2-stem vocal-mask inference through ONNX Runtime;
 - DeepFilterNet-based background-noise reduction;
-- hybrid Spotify Basic Pitch and YIN note detection;
-- confidence filtering, onset evidence, median smoothing, and octave reconciliation;
+- SwiftF0 monophonic neural pitch tracking at 16 ms resolution;
+- band-limited resampling to prevent high harmonics from aliasing into false notes;
+- whole-recording dynamic-programming note segmentation for vibrato, glides, brief dropouts, and octave glitches;
+- automatic concert-pitch quantization with A4 fixed at 440 Hz;
+- automatic comparison of denoised and pre-denoised pitch contours;
 - timed piano roll, highlighted keyboard, and tappable note sequence;
 - sustained local piano and harmonium playback;
 - progress and fallback messages for every processing stage.
@@ -32,16 +35,18 @@ The current test APK targets 64-bit ARM Android phones (`arm64-v8a`) and limits 
 
 1. Decode the completed recording to mono PCM.
 2. Resample to 48 kHz and apply gentle DeepFilterNet cleanup.
-3. Resample to 44.1 kHz and run Basic Pitch plus YIN.
-4. Reconcile, smooth, and segment the pitch evidence into note events.
+3. Analyze both the cleaned and pre-cleanup signals with SwiftF0 at 16 kHz.
+4. Retain the more confident, temporally coherent pitch contour.
+5. Segment the complete contour globally and tune each fitted note to A4 = 440 Hz.
 
 ### Uploaded audio
 
 1. Decode and preserve the left and right channels at 44.1 kHz.
 2. Compute a 4,096-point stereo STFT and run the Spleeter vocal model in 512-frame chunks.
 3. Apply the learned vocal mask, invert the STFT, and mix the vocal stem to mono.
-4. Apply gentle DeepFilterNet cleanup and run the hybrid note detector.
-5. Draw the result and play it with the chosen local instrument.
+4. Apply gentle DeepFilterNet cleanup and compare it with the unfiltered vocal stem.
+5. Track the predominant monophonic F0, globally segment it, and tune notes to A4 = 440 Hz.
+6. Draw the result and play it with the chosen local instrument.
 
 If either cleanup model is unavailable on a device, analysis continues with the best available audio and the result screen reports the fallback.
 

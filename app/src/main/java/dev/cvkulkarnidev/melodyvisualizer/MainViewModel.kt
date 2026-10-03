@@ -11,7 +11,7 @@ import dev.cvkulkarnidev.melodyvisualizer.audio.HummingRecorder
 import dev.cvkulkarnidev.melodyvisualizer.audio.InstrumentSound
 import dev.cvkulkarnidev.melodyvisualizer.audio.PianoSynth
 import dev.cvkulkarnidev.melodyvisualizer.music.DetectedNoteEvent
-import dev.cvkulkarnidev.melodyvisualizer.music.HybridMelodyTranscriber
+import dev.cvkulkarnidev.melodyvisualizer.music.AccurateMelodyTranscriber
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -57,7 +57,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val recorder = HummingRecorder(appContext)
     private val decoder = AudioFileDecoder(appContext)
     private val preprocessor = AudioPreprocessor(appContext)
-    private val transcriber = HybridMelodyTranscriber(appContext)
+    private val transcriber = AccurateMelodyTranscriber(appContext)
     private val pianoSynth = PianoSynth()
 
     private val _uiState = MutableStateFlow(MelodyUiState())
@@ -252,7 +252,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     )
                 }
                 val notes = withContext(Dispatchers.Default) {
-                    transcriber.transcribe(cleaned.samples, decoded.sampleRate) { progress ->
+                    transcriber.transcribeCandidates(
+                        candidates = listOfNotNull(cleaned.samples, cleaned.alternateSamples),
+                        sampleRate = decoded.sampleRate,
+                    ) { progress ->
                         _uiState.update {
                             it.copy(
                                 stage = AnalysisStage.Transcribing,

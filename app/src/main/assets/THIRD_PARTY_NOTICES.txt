@@ -1,5 +1,6 @@
 Melody Visualizer third-party components
 
+SwiftF0 - MIT License
 Spotify Basic Pitch - Apache License 2.0
 Deezer Spleeter - MIT License
 sherpa-onnx model conversion - Apache License 2.0
