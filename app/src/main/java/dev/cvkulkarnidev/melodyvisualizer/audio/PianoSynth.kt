@@ -9,6 +9,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
 import kotlin.math.PI
+import kotlin.math.abs
 import kotlin.math.exp
 import kotlin.math.sin
 
@@ -51,26 +52,33 @@ class PianoSynth {
                 onComplete()
                 return@execute
             }
+            val samples = InstrumentWaveformGenerator.synthesizeSequence(notes, instrument)
+            val track = createTrack(samples, instrument) ?: run {
+                onComplete()
+                return@execute
+            }
+            activeTrack = track
+            track.play()
+
             val sequenceStart = notes.first().startMillis
             notes.forEachIndexed { index, event ->
                 sequenceTasks += executor.schedule(
                     {
-                        playInternal(event.note, instrument, event.durationMillis)
                         onNote(index)
                     },
-                    (event.startMillis - sequenceStart).coerceAtLeast(0L),
+                    InstrumentWaveformGenerator.SEQUENCE_LEAD_IN_MILLIS +
+                        (event.startMillis - sequenceStart).coerceAtLeast(0L),
                     TimeUnit.MILLISECONDS,
                 )
             }
-            val releaseMillis = InstrumentWaveformGenerator.releaseMillis(instrument)
-            val endDelay = notes.last().endMillis - sequenceStart + releaseMillis + 100L
-            sequenceTasks += executor.schedule(
+            val playbackMillis = samples.size * 1_000L / InstrumentWaveformGenerator.SAMPLE_RATE
+            releaseTask = executor.schedule(
                 {
                     releaseActiveTrack()
                     sequenceTasks.clear()
                     onComplete()
                 },
-                endDelay,
+                playbackMillis + 60L,
                 TimeUnit.MILLISECONDS,
             )
         }
@@ -127,6 +135,20 @@ class PianoSynth {
             sampleCache.remove(sampleCache.keys.first())
         }
 
+        val playbackSamples = InstrumentWaveformGenerator.prependSilence(samples)
+        val track = createTrack(playbackSamples, instrument) ?: return
+
+        activeTrack = track
+        track.play()
+        val playbackMillis = playbackSamples.size * 1_000L / InstrumentWaveformGenerator.SAMPLE_RATE
+        releaseTask = executor.schedule(
+            { releaseActiveTrack() },
+            playbackMillis + 60L,
+            TimeUnit.MILLISECONDS,
+        )
+    }
+
+    private fun createTrack(samples: ShortArray, instrument: InstrumentSound): AudioTrack? {
         val track = runCatching {
             AudioTrack.Builder()
                 .setAudioAttributes(
@@ -145,18 +167,11 @@ class PianoSynth {
                 .setTransferMode(AudioTrack.MODE_STATIC)
                 .setBufferSizeInBytes(samples.size * Short.SIZE_BYTES)
                 .build()
-        }.getOrNull() ?: return
+        }.getOrNull() ?: return null
 
-        activeTrack = track
         track.write(samples, 0, samples.size)
         track.setVolume(if (instrument == InstrumentSound.Harmonium) 0.52f else 0.58f)
-        track.play()
-        val playbackMillis = samples.size * 1_000L / InstrumentWaveformGenerator.SAMPLE_RATE
-        releaseTask = executor.schedule(
-            { releaseActiveTrack() },
-            playbackMillis + 60L,
-            TimeUnit.MILLISECONDS,
-        )
+        return track
     }
 
     private fun Long.roundToCacheBucket(): Long = ((this + 25L) / 50L) * 50L
@@ -178,6 +193,7 @@ class PianoSynth {
 /** Pure waveform generator kept separate so its envelopes can be unit tested. */
 internal object InstrumentWaveformGenerator {
     const val SAMPLE_RATE = 44_100
+    const val SEQUENCE_LEAD_IN_MILLIS = 24L
 
     fun releaseMillis(instrument: InstrumentSound): Long = when (instrument) {
         InstrumentSound.Piano -> 520L
@@ -204,6 +220,63 @@ internal object InstrumentWaveformGenerator {
                 .coerceIn(Short.MIN_VALUE.toDouble(), Short.MAX_VALUE.toDouble())
                 .toInt()
                 .toShort()
+        }
+    }
+
+    /**
+     * Renders a complete melody into one PCM buffer. Release tails can overlap the next attack,
+     * avoiding the click and device-start noise caused by constructing an AudioTrack per note.
+     */
+    fun synthesizeSequence(
+        notes: List<DetectedNoteEvent>,
+        instrument: InstrumentSound,
+    ): ShortArray {
+        if (notes.isEmpty()) return ShortArray(0)
+        val ordered = notes.sortedBy { it.startMillis }
+        val sequenceStart = ordered.first().startMillis
+        val finalHeldEnd = ordered.indices.maxOf { index ->
+            ordered[index].startMillis - sequenceStart + effectiveHeldDurationMillis(ordered, index)
+        }
+        val totalMillis = SEQUENCE_LEAD_IN_MILLIS + finalHeldEnd + releaseMillis(instrument)
+        val mix = FloatArray((SAMPLE_RATE * totalMillis / 1_000L).toInt().coerceAtLeast(1))
+
+        ordered.forEachIndexed { index, event ->
+            val heldMillis = effectiveHeldDurationMillis(ordered, index)
+            val waveform = synthesize(event.note.frequencyHz, heldMillis, instrument)
+            val startSample = (
+                (SEQUENCE_LEAD_IN_MILLIS + event.startMillis - sequenceStart) * SAMPLE_RATE / 1_000L
+                ).toInt()
+            val available = minOf(waveform.size, mix.size - startSample)
+            for (sample in 0 until available) {
+                mix[startSample + sample] += waveform[sample] / Short.MAX_VALUE.toFloat()
+            }
+        }
+
+        val peak = mix.maxOf { abs(it) }.coerceAtLeast(1f)
+        val scale = minOf(1f, 0.94f / peak)
+        return ShortArray(mix.size) { index ->
+            (mix[index] * scale * Short.MAX_VALUE)
+                .coerceIn(Short.MIN_VALUE.toFloat(), Short.MAX_VALUE.toFloat())
+                .toInt()
+                .toShort()
+        }
+    }
+
+    fun prependSilence(samples: ShortArray): ShortArray {
+        val silenceSamples = (SAMPLE_RATE * SEQUENCE_LEAD_IN_MILLIS / 1_000L).toInt()
+        return ShortArray(silenceSamples + samples.size).also { output ->
+            samples.copyInto(output, destinationOffset = silenceSamples)
+        }
+    }
+
+    internal fun effectiveHeldDurationMillis(notes: List<DetectedNoteEvent>, index: Int): Long {
+        val event = notes[index]
+        val next = notes.getOrNull(index + 1) ?: return event.durationMillis
+        val gap = next.startMillis - event.endMillis
+        return if (gap in 1..MAX_LEGATO_GAP_MILLIS) {
+            event.durationMillis + gap
+        } else {
+            event.durationMillis
         }
     }
 
@@ -256,4 +329,5 @@ internal object InstrumentWaveformGenerator {
 
     private val PIANO_HARMONICS = doubleArrayOf(0.76, 0.23, 0.12, 0.065, 0.032)
     private val HARMONIUM_HARMONICS = doubleArrayOf(0.62, 0.30, 0.18, 0.10, 0.06)
+    private const val MAX_LEGATO_GAP_MILLIS = 160L
 }

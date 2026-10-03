@@ -4,9 +4,15 @@ import android.content.Context
 import kotlin.math.abs
 import kotlin.math.log2
 
-/** High-accuracy batch melody path: neural F0 contour -> global notes -> A440 tuning. */
+/** High-accuracy batch path: neural F0 -> source-tuning estimate -> global notes -> A440 output. */
 class AccurateMelodyTranscriber(context: Context) : AutoCloseable {
     private val pitchTracker = SwiftF0PitchTracker(context)
+
+    @Volatile
+    internal var lastTuningEstimate: SourceTuningEstimate = SourceTuningEstimator.estimate(
+        PitchContour(DoubleArray(0), FloatArray(0), DoubleArray(0), 16.0),
+    )
+        private set
 
     @Synchronized
     fun transcribe(
@@ -30,16 +36,18 @@ class AccurateMelodyTranscriber(context: Context) : AutoCloseable {
             val contour = pitchTracker.detect(samples, sampleRate) { progress ->
                 onProgress((index + progress * 0.88f) / usable.size)
             }
+            val tuning = SourceTuningEstimator.estimate(contour)
             val notes = SwiftF0NoteSegmenter.segment(
                 contour = contour,
                 pitchHoldMillis = 90.0,
-                concertAHz = 440.0,
+                concertAHz = tuning.referenceAHz,
             )
-            val result = CandidateResult(notes, contourQuality(contour, notes))
+            val result = CandidateResult(notes, contourQuality(contour, notes), tuning)
             if (best == null || result.quality > best!!.quality) best = result
             onProgress((index + 1f) / usable.size)
         }
         onProgress(1f)
+        lastTuningEstimate = best?.tuning ?: lastTuningEstimate
         return best?.notes.orEmpty()
     }
 
@@ -72,6 +80,7 @@ class AccurateMelodyTranscriber(context: Context) : AutoCloseable {
     private data class CandidateResult(
         val notes: List<DetectedNoteEvent>,
         val quality: Double,
+        val tuning: SourceTuningEstimate,
     )
 
     override fun close() = pitchTracker.close()

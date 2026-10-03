@@ -780,7 +780,13 @@ private fun ProcessingReport(state: MelodyUiState) {
                 if (state.noiseReductionApplied) {
                     ProcessingChip("NOISE REDUCED")
                 }
-                ProcessingChip("A4 440 TUNED")
+                ProcessingChip(
+                    if (state.adaptiveTuningApplied && kotlin.math.abs(state.sourceTuningHz - 440.0) >= 0.5) {
+                        "SOURCE ${state.sourceTuningHz.roundToInt()} HZ → A440"
+                    } else {
+                        "A4 440 OUTPUT"
+                    },
+                )
                 if (!state.vocalIsolationApplied && !state.noiseReductionApplied) {
                     Text("ORIGINAL AUDIO ANALYZED", color = TextSecondary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                 }
@@ -851,9 +857,9 @@ private fun InstrumentSelector(
         Spacer(Modifier.height(7.dp))
         Text(
             if (selected == InstrumentSound.Harmonium) {
-                "Harmonium holds each note steadily for its detected length."
+                "Harmonium uses smooth legato and holds through very short gaps."
             } else {
-                "Piano now follows note length with a softer sustained release."
+                "Piano uses one continuous playback stream with overlapping release tails."
             },
             color = TextSecondary,
             fontSize = 11.sp,

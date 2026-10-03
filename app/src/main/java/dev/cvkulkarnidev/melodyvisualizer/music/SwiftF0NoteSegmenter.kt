@@ -84,7 +84,7 @@ internal object SwiftF0NoteSegmenter {
                 val endMillis = (end * contour.framePeriodMillis).roundToInt().toLong()
                 val duration = endMillis - startMillis
                 if (duration >= MINIMUM_NOTE_MILLIS) {
-                    // This is the auto-tune step: snap the globally fitted note to A4 = 440 Hz.
+                    // The source grid may be detuned; MusicNote playback is then normalized to A440.
                     val tunedMidi = candidateMidi[candidate].roundToInt().coerceIn(0, 127)
                     reversed += DetectedNoteEvent(
                         note = MusicNote.fromMidi(tunedMidi),

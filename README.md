@@ -23,7 +23,8 @@ Everything runs on the phone after installation. The app has no account, server,
 - SwiftF0 monophonic neural pitch tracking at 16 ms resolution;
 - band-limited resampling to prevent high harmonics from aliasing into false notes;
 - whole-recording dynamic-programming note segmentation for vibrato, glides, brief dropouts, and octave glitches;
-- automatic concert-pitch quantization with A4 fixed at 440 Hz;
+- source-tuning estimation followed by concert-pitch normalization to A4 = 440 Hz;
+- click-free single-stream piano/harmonium playback with overlapping release tails and short-gap legato;
 - automatic comparison of denoised and pre-denoised pitch contours;
 - timed piano roll, highlighted keyboard, and tappable note sequence;
 - sustained local piano and harmonium playback;
@@ -53,7 +54,7 @@ The evaluation is reproducible with `python scripts/evaluate_vocadito.py` after 
 2. Resample to 48 kHz and apply gentle DeepFilterNet cleanup.
 3. Analyze both the cleaned and pre-cleanup signals with SwiftF0 at 16 kHz.
 4. Retain the more confident, temporally coherent pitch contour.
-5. Segment the complete contour globally and tune each fitted note to A4 = 440 Hz.
+5. Estimate the source's tuning grid, segment the complete contour globally, and normalize the resulting notes to A4 = 440 Hz.
 
 ### Uploaded audio
 
@@ -61,7 +62,7 @@ The evaluation is reproducible with `python scripts/evaluate_vocadito.py` after 
 2. Compute a 4,096-point stereo STFT and run the Spleeter vocal model in 512-frame chunks.
 3. Apply the learned vocal mask, invert the STFT, and mix the vocal stem to mono.
 4. Apply gentle DeepFilterNet cleanup and compare it with the unfiltered vocal stem.
-5. Track the predominant monophonic F0, globally segment it, and tune notes to A4 = 440 Hz.
+5. Track the predominant monophonic F0, estimate the source tuning, globally segment it, and normalize notes to A4 = 440 Hz.
 6. Draw the result and play it with the chosen local instrument.
 
 If either cleanup model is unavailable on a device, analysis continues with the best available audio and the result screen reports the fallback.

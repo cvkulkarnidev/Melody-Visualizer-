@@ -1,5 +1,7 @@
 package dev.cvkulkarnidev.melodyvisualizer.audio
 
+import dev.cvkulkarnidev.melodyvisualizer.music.DetectedNoteEvent
+import dev.cvkulkarnidev.melodyvisualizer.music.MusicNote
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -27,6 +29,57 @@ class InstrumentWaveformGeneratorTest {
 
         assertTrue("Expected a steady harmonium envelope: early=$early late=$late", late > early * 0.82)
     }
+
+    @Test
+    fun `short gaps are held for smooth legato`() {
+        val notes = listOf(
+            event(midi = 60, startMillis = 0L, durationMillis = 240L),
+            event(midi = 64, startMillis = 350L, durationMillis = 300L),
+        )
+
+        assertEquals(350L, InstrumentWaveformGenerator.effectiveHeldDurationMillis(notes, 0))
+        assertEquals(300L, InstrumentWaveformGenerator.effectiveHeldDurationMillis(notes, 1))
+    }
+
+    @Test
+    fun `long intentional rests are not filled`() {
+        val notes = listOf(
+            event(midi = 60, startMillis = 0L, durationMillis = 200L),
+            event(midi = 67, startMillis = 600L, durationMillis = 250L),
+        )
+
+        assertEquals(200L, InstrumentWaveformGenerator.effectiveHeldDurationMillis(notes, 0))
+    }
+
+    @Test
+    fun `complete sequence is rendered as one continuous click safe buffer`() {
+        val notes = listOf(
+            event(midi = 60, startMillis = 0L, durationMillis = 300L),
+            event(midi = 64, startMillis = 300L, durationMillis = 300L),
+            event(midi = 67, startMillis = 600L, durationMillis = 300L),
+        )
+
+        val samples = InstrumentWaveformGenerator.synthesizeSequence(notes, InstrumentSound.Harmonium)
+
+        assertTrue(samples.isNotEmpty())
+        assertEquals(0, samples.first().toInt())
+        assertTrue(kotlin.math.abs(samples.last().toInt()) < 4)
+        for (onsetMillis in listOf(300L, 600L)) {
+            val onset = (
+                (onsetMillis + InstrumentWaveformGenerator.SEQUENCE_LEAD_IN_MILLIS) *
+                    InstrumentWaveformGenerator.SAMPLE_RATE / 1_000L
+                ).toInt()
+            val discontinuity = kotlin.math.abs(samples[onset].toInt() - samples[onset - 1].toInt())
+            assertTrue("Unexpected onset discontinuity: $discontinuity", discontinuity < 6_000)
+        }
+    }
+
+    private fun event(midi: Int, startMillis: Long, durationMillis: Long) = DetectedNoteEvent(
+        note = MusicNote.fromMidi(midi),
+        startMillis = startMillis,
+        durationMillis = durationMillis,
+        confidence = 0.95f,
+    )
 
     private fun rms(samples: ShortArray, fromMillis: Int, toMillis: Int): Double {
         val start = fromMillis * InstrumentWaveformGenerator.SAMPLE_RATE / 1_000

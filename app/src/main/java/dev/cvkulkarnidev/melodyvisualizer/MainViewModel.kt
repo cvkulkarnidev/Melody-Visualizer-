@@ -50,6 +50,8 @@ data class MelodyUiState(
     val vocalIsolationApplied: Boolean = false,
     val noiseReductionApplied: Boolean = false,
     val processingWarning: String? = null,
+    val sourceTuningHz: Double = 440.0,
+    val adaptiveTuningApplied: Boolean = false,
     val errorMessage: String? = null,
 )
 
@@ -271,7 +273,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         }
                     }
                 }
-                AnalysisResult(notes, decoded.durationMillis, cleaned)
+                val tuning = transcriber.lastTuningEstimate
+                AnalysisResult(
+                    notes = notes,
+                    durationMillis = decoded.durationMillis,
+                    cleaned = cleaned,
+                    sourceTuningHz = tuning.referenceAHz,
+                    adaptiveTuningApplied = tuning.isReliable,
+                )
             }.onSuccess { result ->
                 _uiState.update {
                     it.copy(
@@ -283,6 +292,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         vocalIsolationApplied = result.cleaned.vocalIsolationApplied,
                         noiseReductionApplied = result.cleaned.noiseReductionApplied,
                         processingWarning = result.cleaned.warning,
+                        sourceTuningHz = result.sourceTuningHz,
+                        adaptiveTuningApplied = result.adaptiveTuningApplied,
                         errorMessage = null,
                     )
                 }
@@ -333,5 +344,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val notes: List<DetectedNoteEvent>,
         val durationMillis: Long,
         val cleaned: dev.cvkulkarnidev.melodyvisualizer.audio.PreprocessedAudio,
+        val sourceTuningHz: Double,
+        val adaptiveTuningApplied: Boolean,
     )
 }
