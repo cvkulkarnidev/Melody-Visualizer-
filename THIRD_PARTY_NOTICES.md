@@ -2,6 +2,15 @@
 
 Melody Visualizer uses the following open-source models and libraries.
 
+## Vocadito example recordings
+
+- Dataset: https://doi.org/10.5281/zenodo.5578807
+- Creators: Rachel Bittner, Katherine Pasalo, Juan José Bosch, Gabriel Meseguer Brocal, and David Rubinstein
+- License: Creative Commons Attribution 4.0 International (CC BY 4.0)
+- Included recordings: `vocadito_10.flac`, `vocadito_14.flac`, and `vocadito_20.flac`, losslessly converted from the original WAV files
+
+The bundled recordings are used as offline examples and real-voice evaluation material. No endorsement by the dataset creators is implied.
+
 ## SwiftF0
 
 - Project: https://github.com/lars76/swift-f0

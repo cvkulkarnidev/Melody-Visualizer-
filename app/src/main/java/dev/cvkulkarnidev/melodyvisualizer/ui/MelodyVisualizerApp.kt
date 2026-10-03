@@ -81,6 +81,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.cvkulkarnidev.melodyvisualizer.AnalysisStage
 import dev.cvkulkarnidev.melodyvisualizer.MainViewModel
 import dev.cvkulkarnidev.melodyvisualizer.MelodyUiState
+import dev.cvkulkarnidev.melodyvisualizer.R
 import dev.cvkulkarnidev.melodyvisualizer.audio.InstrumentSound
 import dev.cvkulkarnidev.melodyvisualizer.music.DetectedNoteEvent
 import dev.cvkulkarnidev.melodyvisualizer.music.MusicNote
@@ -161,6 +162,10 @@ fun MelodyVisualizerApp(viewModel: MainViewModel) {
                     }
                 },
                 onUpload = { uploadLauncher.launch(arrayOf("audio/*")) },
+                onExample = { example ->
+                    viewModel.analyzeExample(example.resourceId, example.displayName)
+                    destinationName = Destination.Result.name
+                },
             )
 
             Destination.Record -> RecordingScreen(
@@ -204,6 +209,7 @@ fun MelodyVisualizerApp(viewModel: MainViewModel) {
 private fun HomeScreen(
     onRecord: () -> Unit,
     onUpload: () -> Unit,
+    onExample: (VoiceExample) -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -248,6 +254,34 @@ private fun HomeScreen(
             onClick = onUpload,
         )
 
+        Spacer(Modifier.height(30.dp))
+        Text(
+            text = "TRY A REAL VOICE EXAMPLE",
+            color = Mint,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 1.1.sp,
+        )
+        Spacer(Modifier.height(6.dp))
+        Text(
+            text = "Three human-annotated solo singing clips are included offline.",
+            color = TextSecondary,
+            fontSize = 13.sp,
+            lineHeight = 19.sp,
+        )
+        Spacer(Modifier.height(12.dp))
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            itemsIndexed(voiceExamples) { _, example ->
+                VoiceExampleCard(example = example, onClick = { onExample(example) })
+            }
+        }
+        Spacer(Modifier.height(9.dp))
+        Text(
+            text = "Vocadito dataset · CC BY 4.0",
+            color = TextSecondary.copy(alpha = 0.72f),
+            fontSize = 11.sp,
+        )
+
         Spacer(Modifier.height(26.dp))
         PrivacyPill()
         Spacer(Modifier.height(18.dp))
@@ -259,6 +293,44 @@ private fun HomeScreen(
             textAlign = TextAlign.Center,
             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
         )
+    }
+}
+
+private data class VoiceExample(
+    val resourceId: Int,
+    val displayName: String,
+    val title: String,
+    val detail: String,
+)
+
+private val voiceExamples = listOf(
+    VoiceExample(R.raw.vocadito_10, "Voice example 1", "Low phrase", "English · 9 sec"),
+    VoiceExample(R.raw.vocadito_14, "Voice example 2", "Mid phrase", "English · 12 sec"),
+    VoiceExample(R.raw.vocadito_20, "Voice example 3", "Agile phrase", "English · 9 sec"),
+)
+
+@Composable
+private fun VoiceExampleCard(example: VoiceExample, onClick: () -> Unit) {
+    Card(
+        modifier = Modifier.width(164.dp).clickable(onClick = onClick),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = SurfaceRaised.copy(alpha = 0.92f)),
+        border = BorderStroke(1.dp, Mint.copy(alpha = 0.18f)),
+    ) {
+        Column(Modifier.padding(16.dp)) {
+            Box(
+                modifier = Modifier.size(36.dp).clip(CircleShape).background(Mint.copy(alpha = 0.13f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Icons.Rounded.PlayArrow, contentDescription = null, tint = Mint)
+            }
+            Spacer(Modifier.height(12.dp))
+            Text(example.title, color = TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(3.dp))
+            Text(example.detail, color = TextSecondary, fontSize = 11.sp)
+            Spacer(Modifier.height(9.dp))
+            Text("ANALYZE", color = Mint, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.9.sp)
+        }
     }
 }
 

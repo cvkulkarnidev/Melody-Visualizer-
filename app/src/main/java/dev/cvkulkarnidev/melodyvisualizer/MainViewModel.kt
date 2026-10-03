@@ -3,6 +3,7 @@ package dev.cvkulkarnidev.melodyvisualizer
 import android.app.Application
 import android.net.Uri
 import android.provider.OpenableColumns
+import androidx.annotation.RawRes
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import dev.cvkulkarnidev.melodyvisualizer.audio.AudioFileDecoder
@@ -140,6 +141,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun analyzeUploadedAudio(uri: Uri) {
         analyzeAudio(uri, resolveDisplayName(uri), isolateVocals = true)
+    }
+
+    fun analyzeExample(@RawRes resourceId: Int, displayName: String) {
+        val uri = Uri.parse("android.resource://${appContext.packageName}/$resourceId")
+        analyzeAudio(uri, displayName, isolateVocals = false)
     }
 
     fun selectNote(index: Int) {
