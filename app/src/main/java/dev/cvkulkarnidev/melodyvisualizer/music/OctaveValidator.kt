@@ -22,13 +22,15 @@ internal object OctaveValidator {
 
         return notes.map { event ->
             if (event.durationMillis < MINIMUM_VALIDATION_MILLIS) return@map event
-            val windowStarts = VALIDATION_POSITIONS.mapNotNullTo(linkedSetOf<Int>()) { position ->
+            val windowStarts = linkedSetOf<Int>()
+            VALIDATION_POSITIONS.forEach { position ->
                 val centerMillis = event.startMillis + (event.durationMillis * position).toLong()
                 val centerSample = centerMillis * sampleRate / 1_000L
                 (centerSample - WINDOW_SIZE / 2L)
                     .coerceIn(0L, (samples.size - WINDOW_SIZE).toLong())
                     .toInt()
                     .takeIf { it + WINDOW_SIZE <= samples.size }
+                    ?.let(windowStarts::add)
             }
             if (windowStarts.size < REQUIRED_VOTES) return@map event
 
