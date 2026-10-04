@@ -189,6 +189,8 @@ fun MelodyVisualizerApp(viewModel: MainViewModel) {
                 onBack = ::goHome,
                 onPlay = viewModel::playMelody,
                 onStop = viewModel::stopPlayback,
+                onPlaySource = viewModel::playSourceAudio,
+                onStopSource = viewModel::stopSourcePlayback,
                 onSelectNote = viewModel::selectNote,
                 onInstrumentChange = viewModel::selectInstrument,
                 onRecordAgain = {
@@ -596,6 +598,8 @@ private fun ResultScreen(
     onBack: () -> Unit,
     onPlay: () -> Unit,
     onStop: () -> Unit,
+    onPlaySource: () -> Unit,
+    onStopSource: () -> Unit,
     onSelectNote: (Int) -> Unit,
     onInstrumentChange: (InstrumentSound) -> Unit,
     onRecordAgain: () -> Unit,
@@ -625,6 +629,8 @@ private fun ResultScreen(
                 state = state,
                 onPlay = onPlay,
                 onStop = onStop,
+                onPlaySource = onPlaySource,
+                onStopSource = onStopSource,
                 onSelectNote = onSelectNote,
                 onInstrumentChange = onInstrumentChange,
                 onRecordAgain = onRecordAgain,
@@ -698,6 +704,8 @@ private fun CompletedResult(
     state: MelodyUiState,
     onPlay: () -> Unit,
     onStop: () -> Unit,
+    onPlaySource: () -> Unit,
+    onStopSource: () -> Unit,
     onSelectNote: (Int) -> Unit,
     onInstrumentChange: (InstrumentSound) -> Unit,
     onRecordAgain: () -> Unit,
@@ -708,6 +716,8 @@ private fun CompletedResult(
 
     if (state.notes.isEmpty()) {
         EmptyResultCard()
+        Spacer(Modifier.height(16.dp))
+        SourcePlaybackControls(state, onPlaySource, onStopSource)
         Spacer(Modifier.height(16.dp))
         RetryButtons(onRecordAgain, onUploadAnother)
         return
@@ -741,6 +751,9 @@ private fun CompletedResult(
     NoteSequence(state.notes, selectedIndex, onSelectNote)
     Spacer(Modifier.height(16.dp))
 
+    SourcePlaybackControls(state, onPlaySource, onStopSource)
+    if (state.hasSourceAudio) Spacer(Modifier.height(16.dp))
+
     InstrumentSelector(
         selected = state.instrument,
         onSelect = onInstrumentChange,
@@ -762,6 +775,59 @@ private fun CompletedResult(
     }
     Spacer(Modifier.height(12.dp))
     RetryButtons(onRecordAgain, onUploadAnother)
+}
+
+@Composable
+private fun SourcePlaybackControls(
+    state: MelodyUiState,
+    onPlaySource: () -> Unit,
+    onStopSource: () -> Unit,
+) {
+    if (state.hasSourceAudio) {
+        Text(
+            "COMPARE WITH ORIGINAL",
+            color = TextSecondary,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 1.2.sp,
+        )
+        Spacer(Modifier.height(8.dp))
+        OutlinedButton(
+            onClick = if (state.isSourcePlaying) onStopSource else onPlaySource,
+            modifier = Modifier.fillMaxWidth().height(50.dp),
+            shape = RoundedCornerShape(15.dp),
+            border = BorderStroke(1.dp, Aqua.copy(alpha = 0.55f)),
+            colors = ButtonDefaults.outlinedButtonColors(
+                containerColor = Aqua.copy(alpha = 0.08f),
+                contentColor = Aqua,
+            ),
+        ) {
+            Icon(
+                if (state.isSourcePlaying) Icons.Rounded.Stop else Icons.Rounded.PlayArrow,
+                contentDescription = null,
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                if (state.isSourcePlaying) "Stop original audio" else "Play original audio",
+                fontWeight = FontWeight.Bold,
+            )
+        }
+        Text(
+            "The highlighted note follows the original recording while it plays.",
+            color = TextSecondary,
+            fontSize = 11.sp,
+            lineHeight = 16.sp,
+            modifier = Modifier.fillMaxWidth().padding(top = 7.dp),
+        )
+        state.sourcePlaybackError?.let { message ->
+            Text(
+                message,
+                color = Color(0xFFFF9AAA),
+                fontSize = 11.sp,
+                modifier = Modifier.padding(top = 5.dp),
+            )
+        }
+    }
 }
 
 @Composable

@@ -42,13 +42,19 @@ class AccurateMelodyTranscriber(context: Context) : AutoCloseable {
                 pitchHoldMillis = 90.0,
                 concertAHz = tuning.referenceAHz,
             )
-            val result = CandidateResult(notes, contourQuality(contour, notes), tuning)
+            val result = CandidateResult(notes, contourQuality(contour, notes), tuning, samples)
             if (best == null || result.quality > best!!.quality) best = result
             onProgress((index + 1f) / usable.size)
         }
         onProgress(1f)
         lastTuningEstimate = best?.tuning ?: lastTuningEstimate
-        return best?.notes.orEmpty()
+        val selected = best ?: return emptyList()
+        return OctaveValidator.correct(
+            notes = selected.notes,
+            samples = selected.samples,
+            sampleRate = sampleRate,
+            sourceAHz = selected.tuning.referenceAHz,
+        )
     }
 
     private fun contourQuality(contour: PitchContour, notes: List<DetectedNoteEvent>): Double {
@@ -81,6 +87,7 @@ class AccurateMelodyTranscriber(context: Context) : AutoCloseable {
         val notes: List<DetectedNoteEvent>,
         val quality: Double,
         val tuning: SourceTuningEstimate,
+        val samples: ShortArray,
     )
 
     override fun close() = pitchTracker.close()

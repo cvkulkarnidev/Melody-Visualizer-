@@ -11,6 +11,7 @@ import dev.cvkulkarnidev.melodyvisualizer.audio.AudioPreprocessor
 import dev.cvkulkarnidev.melodyvisualizer.audio.HummingRecorder
 import dev.cvkulkarnidev.melodyvisualizer.audio.InstrumentSound
 import dev.cvkulkarnidev.melodyvisualizer.audio.PianoSynth
+import dev.cvkulkarnidev.melodyvisualizer.audio.SourceAudioPlayer
 import dev.cvkulkarnidev.melodyvisualizer.music.DetectedNoteEvent
 import dev.cvkulkarnidev.melodyvisualizer.music.AccurateMelodyTranscriber
 import kotlinx.coroutines.Dispatchers
@@ -52,6 +53,9 @@ data class MelodyUiState(
     val processingWarning: String? = null,
     val sourceTuningHz: Double = 440.0,
     val adaptiveTuningApplied: Boolean = false,
+    val hasSourceAudio: Boolean = false,
+    val isSourcePlaying: Boolean = false,
+    val sourcePlaybackError: String? = null,
     val errorMessage: String? = null,
 )
 
@@ -62,12 +66,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val preprocessor = AudioPreprocessor(appContext)
     private val transcriber = AccurateMelodyTranscriber(appContext)
     private val pianoSynth = PianoSynth()
+    private val sourceAudioPlayer = SourceAudioPlayer(appContext)
 
     private val _uiState = MutableStateFlow(MelodyUiState())
     val uiState: StateFlow<MelodyUiState> = _uiState.asStateFlow()
 
     private var recordingTimerJob: Job? = null
     private var analysisJob: Job? = null
+    private var sourceProgressJob: Job? = null
+    private var sourceAudioUri: Uri? = null
     private var recordingStartedAt = 0L
 
     fun startRecording() {
@@ -152,6 +159,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun selectNote(index: Int) {
         val note = _uiState.value.notes.getOrNull(index) ?: return
+        stopSourcePlayback()
         pianoSynth.play(
             note = note.note,
             instrument = _uiState.value.instrument,
@@ -168,7 +176,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun playMelody() {
         val notes = _uiState.value.notes
         if (notes.isEmpty()) return
-        _uiState.update { it.copy(isPlaying = true, selectedNoteIndex = 0) }
+        stopSourcePlayback()
+        _uiState.update { it.copy(isPlaying = true, selectedNoteIndex = 0, sourcePlaybackError = null) }
         pianoSynth.playSequence(
             notes = notes,
             instrument = _uiState.value.instrument,
@@ -186,9 +195,54 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.update { it.copy(isPlaying = false) }
     }
 
+    fun playSourceAudio() {
+        val uri = sourceAudioUri ?: return
+        pianoSynth.stop()
+        sourceProgressJob?.cancel()
+        _uiState.update {
+            it.copy(isPlaying = false, isSourcePlaying = true, sourcePlaybackError = null)
+        }
+        sourceAudioPlayer.play(
+            uri = uri,
+            onStarted = {
+                sourceProgressJob?.cancel()
+                sourceProgressJob = viewModelScope.launch {
+                    while (sourceAudioPlayer.isPlaying()) {
+                        val position = sourceAudioPlayer.currentPositionMillis() ?: break
+                        val notes = _uiState.value.notes
+                        val index = notes.indexOfLast { event -> position >= event.startMillis }
+                        if (index >= 0) {
+                            _uiState.update { it.copy(selectedNoteIndex = index, isSourcePlaying = true) }
+                        }
+                        delay(SOURCE_PROGRESS_INTERVAL_MILLIS)
+                    }
+                }
+            },
+            onComplete = {
+                sourceProgressJob?.cancel()
+                _uiState.update { it.copy(isSourcePlaying = false) }
+            },
+            onError = { message ->
+                sourceProgressJob?.cancel()
+                _uiState.update {
+                    it.copy(isSourcePlaying = false, sourcePlaybackError = message)
+                }
+            },
+        )
+    }
+
+    fun stopSourcePlayback() {
+        sourceProgressJob?.cancel()
+        sourceProgressJob = null
+        sourceAudioPlayer.stop()
+        _uiState.update { it.copy(isSourcePlaying = false) }
+    }
+
     fun reset() {
         analysisJob?.cancel()
         recordingTimerJob?.cancel()
+        stopSourcePlayback()
+        sourceAudioUri = null
         recorder.cancel()
         pianoSynth.stop()
         _uiState.value = MelodyUiState()
@@ -206,11 +260,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun analyzeAudio(uri: Uri, displayName: String, isolateVocals: Boolean) {
         analysisJob?.cancel()
         pianoSynth.stop()
+        stopSourcePlayback()
+        sourceAudioUri = uri
         analysisJob = viewModelScope.launch {
             _uiState.value = MelodyUiState(
                 stage = AnalysisStage.Decoding,
                 fileName = displayName,
                 progress = 0.02f,
+                hasSourceAudio = true,
             )
             runCatching {
                 val decodeEnd = if (isolateVocals) 0.15f else 0.24f
@@ -294,6 +351,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         processingWarning = result.cleaned.warning,
                         sourceTuningHz = result.sourceTuningHz,
                         adaptiveTuningApplied = result.adaptiveTuningApplied,
+                        hasSourceAudio = true,
                         errorMessage = null,
                     )
                 }
@@ -330,6 +388,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     override fun onCleared() {
         recorder.release()
+        sourceProgressJob?.cancel()
+        sourceAudioPlayer.close()
         preprocessor.close()
         transcriber.close()
         pianoSynth.release()
@@ -338,6 +398,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private companion object {
         const val MINIMUM_RECORDING_MILLIS = 1_000L
+        const val SOURCE_PROGRESS_INTERVAL_MILLIS = 50L
     }
 
     private data class AnalysisResult(

@@ -23,8 +23,10 @@ Everything runs on the phone after installation. The app has no account, server,
 - SwiftF0 monophonic neural pitch tracking at 16 ms resolution;
 - band-limited resampling to prevent high harmonics from aliasing into false notes;
 - whole-recording dynamic-programming note segmentation for vibrato, glides, brief dropouts, and octave glitches;
+- strict multi-window YIN validation for confirmed one-octave tracking errors;
 - source-tuning estimation followed by concert-pitch normalization to A4 = 440 Hz;
-- click-free single-stream piano/harmonium playback with overlapping release tails and short-gap legato;
+- click-resistant single-stream piano/harmonium playback, bounded harmonium vibrato, short-gap legato, and preserved rests;
+- original-audio playback on the result screen with synchronized note highlighting;
 - automatic comparison of denoised and pre-denoised pitch contours;
 - timed piano roll, highlighted keyboard, and tappable note sequence;
 - sustained local piano and harmonium playback;
