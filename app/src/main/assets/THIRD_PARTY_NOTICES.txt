@@ -1,5 +1,7 @@
 Melody Visualizer third-party components
 
+Vocadito example recordings - CC BY 4.0
+SwiftF0 - MIT License
 Spotify Basic Pitch - Apache License 2.0
 Deezer Spleeter - MIT License
 sherpa-onnx model conversion - Apache License 2.0

@@ -81,6 +81,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.cvkulkarnidev.melodyvisualizer.AnalysisStage
 import dev.cvkulkarnidev.melodyvisualizer.MainViewModel
 import dev.cvkulkarnidev.melodyvisualizer.MelodyUiState
+import dev.cvkulkarnidev.melodyvisualizer.R
 import dev.cvkulkarnidev.melodyvisualizer.audio.InstrumentSound
 import dev.cvkulkarnidev.melodyvisualizer.music.DetectedNoteEvent
 import dev.cvkulkarnidev.melodyvisualizer.music.MusicNote
@@ -161,6 +162,10 @@ fun MelodyVisualizerApp(viewModel: MainViewModel) {
                     }
                 },
                 onUpload = { uploadLauncher.launch(arrayOf("audio/*")) },
+                onExample = { example ->
+                    viewModel.analyzeExample(example.resourceId, example.displayName)
+                    destinationName = Destination.Result.name
+                },
             )
 
             Destination.Record -> RecordingScreen(
@@ -184,6 +189,8 @@ fun MelodyVisualizerApp(viewModel: MainViewModel) {
                 onBack = ::goHome,
                 onPlay = viewModel::playMelody,
                 onStop = viewModel::stopPlayback,
+                onPlaySource = viewModel::playSourceAudio,
+                onStopSource = viewModel::stopSourcePlayback,
                 onSelectNote = viewModel::selectNote,
                 onInstrumentChange = viewModel::selectInstrument,
                 onRecordAgain = {
@@ -204,6 +211,7 @@ fun MelodyVisualizerApp(viewModel: MainViewModel) {
 private fun HomeScreen(
     onRecord: () -> Unit,
     onUpload: () -> Unit,
+    onExample: (VoiceExample) -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -248,6 +256,34 @@ private fun HomeScreen(
             onClick = onUpload,
         )
 
+        Spacer(Modifier.height(30.dp))
+        Text(
+            text = "TRY A REAL VOICE EXAMPLE",
+            color = Mint,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 1.1.sp,
+        )
+        Spacer(Modifier.height(6.dp))
+        Text(
+            text = "Three human-annotated solo singing clips are included offline.",
+            color = TextSecondary,
+            fontSize = 13.sp,
+            lineHeight = 19.sp,
+        )
+        Spacer(Modifier.height(12.dp))
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            itemsIndexed(voiceExamples) { _, example ->
+                VoiceExampleCard(example = example, onClick = { onExample(example) })
+            }
+        }
+        Spacer(Modifier.height(9.dp))
+        Text(
+            text = "Vocadito dataset · CC BY 4.0",
+            color = TextSecondary.copy(alpha = 0.72f),
+            fontSize = 11.sp,
+        )
+
         Spacer(Modifier.height(26.dp))
         PrivacyPill()
         Spacer(Modifier.height(18.dp))
@@ -259,6 +295,44 @@ private fun HomeScreen(
             textAlign = TextAlign.Center,
             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
         )
+    }
+}
+
+private data class VoiceExample(
+    val resourceId: Int,
+    val displayName: String,
+    val title: String,
+    val detail: String,
+)
+
+private val voiceExamples = listOf(
+    VoiceExample(R.raw.vocadito_10, "Voice example 1", "Low phrase", "English · 9 sec"),
+    VoiceExample(R.raw.vocadito_14, "Voice example 2", "Mid phrase", "English · 12 sec"),
+    VoiceExample(R.raw.vocadito_20, "Voice example 3", "Agile phrase", "English · 9 sec"),
+)
+
+@Composable
+private fun VoiceExampleCard(example: VoiceExample, onClick: () -> Unit) {
+    Card(
+        modifier = Modifier.width(164.dp).clickable(onClick = onClick),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = SurfaceRaised.copy(alpha = 0.92f)),
+        border = BorderStroke(1.dp, Mint.copy(alpha = 0.18f)),
+    ) {
+        Column(Modifier.padding(16.dp)) {
+            Box(
+                modifier = Modifier.size(36.dp).clip(CircleShape).background(Mint.copy(alpha = 0.13f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Icons.Rounded.PlayArrow, contentDescription = null, tint = Mint)
+            }
+            Spacer(Modifier.height(12.dp))
+            Text(example.title, color = TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(3.dp))
+            Text(example.detail, color = TextSecondary, fontSize = 11.sp)
+            Spacer(Modifier.height(9.dp))
+            Text("ANALYZE", color = Mint, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.9.sp)
+        }
     }
 }
 
@@ -524,6 +598,8 @@ private fun ResultScreen(
     onBack: () -> Unit,
     onPlay: () -> Unit,
     onStop: () -> Unit,
+    onPlaySource: () -> Unit,
+    onStopSource: () -> Unit,
     onSelectNote: (Int) -> Unit,
     onInstrumentChange: (InstrumentSound) -> Unit,
     onRecordAgain: () -> Unit,
@@ -553,6 +629,8 @@ private fun ResultScreen(
                 state = state,
                 onPlay = onPlay,
                 onStop = onStop,
+                onPlaySource = onPlaySource,
+                onStopSource = onStopSource,
                 onSelectNote = onSelectNote,
                 onInstrumentChange = onInstrumentChange,
                 onRecordAgain = onRecordAgain,
@@ -585,7 +663,7 @@ private fun ProcessingCard(state: MelodyUiState) {
                 when (state.stage) {
                     AnalysisStage.Separating -> "Isolating the vocal…"
                     AnalysisStage.Cleaning -> "Removing background noise…"
-                    AnalysisStage.Transcribing -> "Finding melody notes…"
+                    AnalysisStage.Transcribing -> "Tracking and tuning melody…"
                     else -> "Preparing your audio…"
                 },
                 color = TextPrimary,
@@ -626,6 +704,8 @@ private fun CompletedResult(
     state: MelodyUiState,
     onPlay: () -> Unit,
     onStop: () -> Unit,
+    onPlaySource: () -> Unit,
+    onStopSource: () -> Unit,
     onSelectNote: (Int) -> Unit,
     onInstrumentChange: (InstrumentSound) -> Unit,
     onRecordAgain: () -> Unit,
@@ -636,6 +716,8 @@ private fun CompletedResult(
 
     if (state.notes.isEmpty()) {
         EmptyResultCard()
+        Spacer(Modifier.height(16.dp))
+        SourcePlaybackControls(state, onPlaySource, onStopSource)
         Spacer(Modifier.height(16.dp))
         RetryButtons(onRecordAgain, onUploadAnother)
         return
@@ -669,6 +751,9 @@ private fun CompletedResult(
     NoteSequence(state.notes, selectedIndex, onSelectNote)
     Spacer(Modifier.height(16.dp))
 
+    SourcePlaybackControls(state, onPlaySource, onStopSource)
+    if (state.hasSourceAudio) Spacer(Modifier.height(16.dp))
+
     InstrumentSelector(
         selected = state.instrument,
         onSelect = onInstrumentChange,
@@ -693,6 +778,59 @@ private fun CompletedResult(
 }
 
 @Composable
+private fun SourcePlaybackControls(
+    state: MelodyUiState,
+    onPlaySource: () -> Unit,
+    onStopSource: () -> Unit,
+) {
+    if (state.hasSourceAudio) {
+        Text(
+            "COMPARE WITH ORIGINAL",
+            color = TextSecondary,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 1.2.sp,
+        )
+        Spacer(Modifier.height(8.dp))
+        OutlinedButton(
+            onClick = if (state.isSourcePlaying) onStopSource else onPlaySource,
+            modifier = Modifier.fillMaxWidth().height(50.dp),
+            shape = RoundedCornerShape(15.dp),
+            border = BorderStroke(1.dp, Aqua.copy(alpha = 0.55f)),
+            colors = ButtonDefaults.outlinedButtonColors(
+                containerColor = Aqua.copy(alpha = 0.08f),
+                contentColor = Aqua,
+            ),
+        ) {
+            Icon(
+                if (state.isSourcePlaying) Icons.Rounded.Stop else Icons.Rounded.PlayArrow,
+                contentDescription = null,
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                if (state.isSourcePlaying) "Stop original audio" else "Play original audio",
+                fontWeight = FontWeight.Bold,
+            )
+        }
+        Text(
+            "The highlighted note follows the original recording while it plays.",
+            color = TextSecondary,
+            fontSize = 11.sp,
+            lineHeight = 16.sp,
+            modifier = Modifier.fillMaxWidth().padding(top = 7.dp),
+        )
+        state.sourcePlaybackError?.let { message ->
+            Text(
+                message,
+                color = Color(0xFFFF9AAA),
+                fontSize = 11.sp,
+                modifier = Modifier.padding(top = 5.dp),
+            )
+        }
+    }
+}
+
+@Composable
 private fun ProcessingReport(state: MelodyUiState) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -708,6 +846,13 @@ private fun ProcessingReport(state: MelodyUiState) {
                 if (state.noiseReductionApplied) {
                     ProcessingChip("NOISE REDUCED")
                 }
+                ProcessingChip(
+                    if (state.adaptiveTuningApplied && kotlin.math.abs(state.sourceTuningHz - 440.0) >= 0.5) {
+                        "SOURCE ${state.sourceTuningHz.roundToInt()} HZ → A440"
+                    } else {
+                        "A4 440 OUTPUT"
+                    },
+                )
                 if (!state.vocalIsolationApplied && !state.noiseReductionApplied) {
                     Text("ORIGINAL AUDIO ANALYZED", color = TextSecondary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                 }
@@ -778,9 +923,9 @@ private fun InstrumentSelector(
         Spacer(Modifier.height(7.dp))
         Text(
             if (selected == InstrumentSound.Harmonium) {
-                "Harmonium holds each note steadily for its detected length."
+                "Harmonium uses smooth legato and holds through very short gaps."
             } else {
-                "Piano now follows note length with a softer sustained release."
+                "Piano uses one continuous playback stream with overlapping release tails."
             },
             color = TextSecondary,
             fontSize = 11.sp,
