@@ -181,12 +181,10 @@ class PianoSynth {
                 .build()
         }.getOrNull() ?: return null
 
-        if (track.state != AudioTrack.STATE_INITIALIZED) {
-            track.release()
-            return null
-        }
+        // MODE_STATIC tracks start in STATE_NO_STATIC_DATA and become initialized only after
+        // their first successful write. Rejecting that state here makes playback end instantly.
         val written = track.write(samples, 0, samples.size, AudioTrack.WRITE_BLOCKING)
-        if (written != samples.size) {
+        if (written != samples.size || track.state != AudioTrack.STATE_INITIALIZED) {
             track.release()
             return null
         }
